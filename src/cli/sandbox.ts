@@ -67,11 +67,12 @@ async function startSandbox(
   // Build the leash command
   const args = buildLeashArgs(port, workspaceConfig, globalConfig.dotfiles)
 
+  // Resolve the user's shell environment before starting the spinner — the
+  // login shell spawn must not happen while we hold the TTY in spinner mode.
+  const shellEnv = getShellEnv()
+
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
-
-  // Resolve the user's shell environment so leash/docker can find the Docker CLI
-  const shellEnv = getShellEnv()
 
   const leashProcess = spawn('leash', args, {
     cwd: workspaceRoot,
@@ -164,6 +165,9 @@ export async function stopSandbox(workspaceRoot: string): Promise<void> {
   const state = readState(workspaceRoot)
   if (!state) return
 
+  const spinner = new Spinner(`stopping sandbox for ${workspaceRoot}`)
+  spinner.start()
+
   if (isProcessAlive(state.leashPid)) {
     try { process.kill(state.leashPid, 'SIGTERM') } catch { /* already gone */ }
 
@@ -181,6 +185,7 @@ export async function stopSandbox(workspaceRoot: string): Promise<void> {
 
   removeContainers()
   removeState(workspaceRoot)
+  spinner.stop()
 }
 
 /** Stop all tracked sandboxes */
@@ -344,9 +349,11 @@ function removeContainers(): void {
 function getShellEnv(): Record<string, string> {
   const shell = process.env.SHELL || '/bin/sh'
   try {
-    const result = spawnSync(shell, ['-li', '-c', 'env'], {
+    const result = spawnSync(shell, ['-l', '-c', 'env'], {
       encoding: 'utf-8',
       timeout: 5000,
+      // Detach from the controlling TTY so the login shell cannot suspend us
+      stdio: ['ignore', 'pipe', 'ignore'],
     })
 
     if (result.status !== 0) return { ...process.env } as Record<string, string>
