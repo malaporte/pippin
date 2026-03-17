@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Wrapper that makes `pippin` resolve to `bun run src/cli/index.ts`
+# Used by `bun run shell` for local development/testing.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec bun run "$SCRIPT_DIR/../src/cli/index.ts" "$@"
