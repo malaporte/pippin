@@ -4,9 +4,13 @@ import os from 'node:os'
 import path from 'node:path'
 
 const dist = path.resolve(import.meta.dirname, '..', 'dist')
-const source = path.join(dist, 'pippin')
 const installDir = path.join(os.homedir(), '.local', 'bin')
 const dest = path.join(installDir, 'pippin')
+
+// Resolve the correct binary for the current platform and architecture
+const platform = os.platform() === 'darwin' ? 'darwin' : 'linux'
+const arch = os.arch() === 'arm64' ? 'arm64' : 'x64'
+const source = path.join(dist, `pippin-${platform}-${arch}`)
 
 // Build first
 await $`bun run ${path.join(import.meta.dirname, 'build.ts')} --cli`

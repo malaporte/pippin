@@ -25,9 +25,19 @@ async function buildServerBinaries() {
 async function buildCliBinary() {
   const entry = path.join(src, 'cli', 'index.ts')
 
-  // Build CLI for the host machine's native target
-  const outfile = path.join(dist, 'pippin')
-  await $`bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv ${entry} --outfile ${outfile}`
+  // Build CLI for all supported host targets
+  const targets = [
+    'bun-darwin-arm64',
+    'bun-darwin-x64',
+    'bun-linux-x64',
+    'bun-linux-arm64',
+  ] as const
+
+  for (const target of targets) {
+    const [, platform, arch] = target.split('-')
+    const outfile = path.join(dist, `pippin-${platform}-${arch}`)
+    await $`bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv --target=${target} ${entry} --outfile ${outfile}`
+  }
 }
 
 if (buildServer) {
