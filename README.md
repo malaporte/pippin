@@ -1,6 +1,6 @@
 <img src="docs/pippin.avif" alt="Pippin" width="100%" />
 
-# Pippin
+# Pippin - your agents are up to no good
 
 Run shell commands inside isolated, on-demand Docker sandboxes — transparently, from your terminal.
 
@@ -48,14 +48,14 @@ pippin run bash
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `pippin run <cmd>` | Run a command inside the sandbox |
-| `pippin init` | Create a `.pippin.toml` in the current directory |
-| `pippin status` | Show the status of the current workspace sandbox |
-| `pippin status --all` | Show all running sandboxes |
-| `pippin stop` | Stop the current workspace sandbox |
-| `pippin stop --all` | Stop all running sandboxes |
+| Command               | Description                                      |
+| --------------------- | ------------------------------------------------ |
+| `pippin run <cmd>`    | Run a command inside the sandbox                 |
+| `pippin init`         | Create a `.pippin.toml` in the current directory |
+| `pippin status`       | Show the status of the current workspace sandbox |
+| `pippin status --all` | Show all running sandboxes                       |
+| `pippin stop`         | Stop the current workspace sandbox               |
+| `pippin stop --all`   | Stop all running sandboxes                       |
 
 ## Configuration
 
