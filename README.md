@@ -25,11 +25,19 @@ Pippin automatically launches a Docker container for your project the first time
 ## Installation
 
 ```sh
-# Build and install to ~/.local/bin/pippin
-bun run deploy:cli
+curl -fsSL https://raw.githubusercontent.com/malaporte/pippin/main/scripts/install.sh | bash
 ```
 
-Requires [Bun](https://bun.sh) and [leash](https://github.com/strongdm/leash) (`public.ecr.aws/s5i7k8t3/strongdm/leash`).
+This installs the latest release to `~/.local/bin/pippin`. You can override the destination with `PIPPIN_INSTALL_DIR=/usr/local/bin` or pin a version with `PIPPIN_VERSION=0.1.1`.
+
+Requires [leash](https://github.com/strongdm/leash) (`public.ecr.aws/s5i7k8t3/strongdm/leash`) and Docker.
+
+### Build from source
+
+```sh
+# Requires Bun
+bun run deploy:cli
+```
 
 ## Getting started
 

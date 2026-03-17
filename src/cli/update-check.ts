@@ -84,7 +84,7 @@ export async function checkForUpdate(): Promise<string | null> {
   if (latestVersion && isNewer(__VERSION__, latestVersion)) {
     return (
       `\nA new version of pippin is available: ${latestVersion} (current: ${__VERSION__})\n` +
-      `Download: https://github.com/${GITHUB_REPO}/releases/latest\n`
+      `Upgrade: curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/install.sh | bash\n`
     )
   }
 
