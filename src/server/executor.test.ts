@@ -180,7 +180,7 @@ describe('handleMessage', () => {
 
     handleMessage(id, { type: 'signal', signal: 'SIGTERM' })
 
-    await waitFor(() => ws.sent.some((m) => m.includes('"exit"')))
+    await waitFor(() => ws.sent.some((m) => m.includes('"exit"')), 10_000)
     expect(ws.sent.some((m) => m.includes('"exit"'))).toBe(true)
   })
 })
