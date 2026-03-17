@@ -38,7 +38,7 @@ async function waitFor(predicate: () => boolean, ms = 2000): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Pipe-mode tests (original behavior, tty=false or omitted)
 // ---------------------------------------------------------------------------
 
 describe('getActiveSessionCount', () => {
@@ -49,7 +49,7 @@ describe('getActiveSessionCount', () => {
   })
 })
 
-describe('createSession', () => {
+describe('createSession (pipe mode)', () => {
   afterEach(() => {
     destroyAllSessions()
   })
@@ -57,21 +57,21 @@ describe('createSession', () => {
   it('increments session count', () => {
     destroyAllSessions()
     const ws = makeMockWs()
-    const id = createSession(ws as never, 'true')
+    const id = createSession(ws as never, { cmd: 'true' })
     expect(getActiveSessionCount()).toBe(1)
     destroySession(id)
   })
 
   it('returns a session ID string', () => {
     const ws = makeMockWs()
-    const id = createSession(ws as never, 'true')
+    const id = createSession(ws as never, { cmd: 'true' })
     expect(typeof id).toBe('string')
     expect(id).toMatch(/^sess_/)
   })
 
   it('sends stdout data as base64 over the WebSocket', async () => {
     const ws = makeMockWs()
-    createSession(ws as never, 'printf hello')
+    createSession(ws as never, { cmd: 'printf hello' })
 
     await waitFor(() => ws.sent.some((m) => m.includes('"stdout"')))
 
@@ -83,7 +83,7 @@ describe('createSession', () => {
 
   it('sends an exit message when the command finishes', async () => {
     const ws = makeMockWs()
-    createSession(ws as never, 'true') // exits with code 0
+    createSession(ws as never, { cmd: 'true' }) // exits with code 0
 
     await waitFor(() => ws.sent.some((m) => m.includes('"exit"')))
 
@@ -95,7 +95,7 @@ describe('createSession', () => {
 
   it('sends exit code 1 for a failing command', async () => {
     const ws = makeMockWs()
-    createSession(ws as never, 'exit 1')
+    createSession(ws as never, { cmd: 'exit 1' })
 
     await waitFor(() => ws.sent.some((m) => m.includes('"exit"')))
 
@@ -106,7 +106,7 @@ describe('createSession', () => {
   it('decrements session count after the process exits', async () => {
     destroyAllSessions()
     const ws = makeMockWs()
-    createSession(ws as never, 'true')
+    createSession(ws as never, { cmd: 'true' })
 
     await waitFor(() => ws.sent.some((m) => m.includes('"exit"')))
     await waitFor(() => getActiveSessionCount() === 0)
@@ -116,7 +116,7 @@ describe('createSession', () => {
 
   it('sends stderr output', async () => {
     const ws = makeMockWs()
-    createSession(ws as never, 'printf err >&2')
+    createSession(ws as never, { cmd: 'printf err >&2' })
 
     await waitFor(() => ws.sent.some((m) => m.includes('"stderr"')))
 
@@ -127,7 +127,7 @@ describe('createSession', () => {
   })
 })
 
-describe('handleMessage', () => {
+describe('handleMessage (pipe mode)', () => {
   afterEach(() => {
     destroyAllSessions()
   })
@@ -142,7 +142,7 @@ describe('handleMessage', () => {
   it('writes stdin data to the process', async () => {
     const ws = makeMockWs()
     // cat echoes stdin to stdout
-    const id = createSession(ws as never, 'cat')
+    const id = createSession(ws as never, { cmd: 'cat' })
 
     handleMessage(id, { type: 'stdin', data: Buffer.from('hello\n').toString('base64') })
     handleMessage(id, { type: 'close_stdin' })
@@ -155,7 +155,7 @@ describe('handleMessage', () => {
 
   it('close_stdin ends the process stdin', async () => {
     const ws = makeMockWs()
-    const id = createSession(ws as never, 'cat')
+    const id = createSession(ws as never, { cmd: 'cat' })
 
     handleMessage(id, { type: 'close_stdin' })
 
@@ -165,7 +165,7 @@ describe('handleMessage', () => {
 
   it('resize message is a no-op and does not throw', () => {
     const ws = makeMockWs()
-    const id = createSession(ws as never, 'sleep 60')
+    const id = createSession(ws as never, { cmd: 'sleep 60' })
 
     expect(() =>
       handleMessage(id, { type: 'resize', cols: 80, rows: 24 })
@@ -176,7 +176,7 @@ describe('handleMessage', () => {
 
   it('signal SIGTERM kills the process', async () => {
     const ws = makeMockWs()
-    const id = createSession(ws as never, 'sleep 60')
+    const id = createSession(ws as never, { cmd: 'sleep 60' })
 
     handleMessage(id, { type: 'signal', signal: 'SIGTERM' })
 
@@ -193,7 +193,7 @@ describe('destroySession', () => {
   it('decrements the session count', () => {
     destroyAllSessions()
     const ws = makeMockWs()
-    const id = createSession(ws as never, 'sleep 60')
+    const id = createSession(ws as never, { cmd: 'sleep 60' })
     expect(getActiveSessionCount()).toBe(1)
 
     destroySession(id)
@@ -209,8 +209,8 @@ describe('destroyAllSessions', () => {
   it('removes all active sessions', () => {
     const ws1 = makeMockWs()
     const ws2 = makeMockWs()
-    createSession(ws1 as never, 'sleep 60')
-    createSession(ws2 as never, 'sleep 60')
+    createSession(ws1 as never, { cmd: 'sleep 60' })
+    createSession(ws2 as never, { cmd: 'sleep 60' })
 
     destroyAllSessions()
     expect(getActiveSessionCount()).toBe(0)
@@ -229,7 +229,7 @@ describe('setSessionCountListener', () => {
     setSessionCountListener((n) => counts.push(n))
 
     const ws = makeMockWs()
-    createSession(ws as never, 'true')
+    createSession(ws as never, { cmd: 'true' })
 
     // Should have received at least count=1
     expect(counts).toContain(1)
@@ -240,9 +240,151 @@ describe('setSessionCountListener', () => {
     setSessionCountListener((n) => counts.push(n))
 
     const ws = makeMockWs()
-    createSession(ws as never, 'true')
+    createSession(ws as never, { cmd: 'true' })
 
     await waitFor(() => counts.includes(0))
     expect(counts).toContain(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PTY-mode tests (tty: true)
+// ---------------------------------------------------------------------------
+
+describe('createSession (pty mode)', () => {
+  afterEach(() => {
+    destroyAllSessions()
+  })
+
+  it('increments session count', () => {
+    destroyAllSessions()
+    const ws = makeMockWs()
+    const id = createSession(ws as never, { cmd: 'true', tty: true, cols: 80, rows: 24 })
+    expect(getActiveSessionCount()).toBe(1)
+    destroySession(id)
+  })
+
+  it('returns a session ID string', () => {
+    const ws = makeMockWs()
+    const id = createSession(ws as never, { cmd: 'true', tty: true })
+    expect(typeof id).toBe('string')
+    expect(id).toMatch(/^sess_/)
+    destroySession(id)
+  })
+
+  it('sends stdout data from PTY as base64 over the WebSocket', async () => {
+    const ws = makeMockWs()
+    createSession(ws as never, { cmd: 'printf hello', tty: true, cols: 80, rows: 24 })
+
+    await waitFor(() => ws.sent.some((m) => m.includes('"stdout"')))
+
+    const stdoutMsgs = ws.sent.filter((m) => m.includes('"stdout"'))
+    const combined = stdoutMsgs
+      .map((m) => Buffer.from(JSON.parse(m).data, 'base64').toString())
+      .join('')
+    expect(combined).toContain('hello')
+  })
+
+  it('sends an exit message when the PTY process finishes', async () => {
+    const ws = makeMockWs()
+    createSession(ws as never, { cmd: 'true', tty: true, cols: 80, rows: 24 })
+
+    await waitFor(() => ws.sent.some((m) => m.includes('"exit"')), 5000)
+
+    const exitMsg = ws.sent.find((m) => m.includes('"exit"'))!
+    const parsed = JSON.parse(exitMsg)
+    expect(parsed.type).toBe('exit')
+    expect(parsed.code).toBe(0)
+  })
+
+  it('decrements session count after the PTY process exits', async () => {
+    destroyAllSessions()
+    const ws = makeMockWs()
+    createSession(ws as never, { cmd: 'true', tty: true, cols: 80, rows: 24 })
+
+    await waitFor(() => ws.sent.some((m) => m.includes('"exit"')), 5000)
+    await waitFor(() => getActiveSessionCount() === 0)
+
+    expect(getActiveSessionCount()).toBe(0)
+  })
+
+  it('does not send separate stderr messages (PTY merges streams)', async () => {
+    const ws = makeMockWs()
+    createSession(ws as never, { cmd: 'printf err >&2', tty: true, cols: 80, rows: 24 })
+
+    await waitFor(() => ws.sent.some((m) => m.includes('"exit"')), 5000)
+
+    // In PTY mode, stderr is merged into stdout; no separate 'stderr' messages
+    const stderrMsgs = ws.sent.filter((m) => m.includes('"stderr"'))
+    expect(stderrMsgs.length).toBe(0)
+
+    // The error output should appear in stdout instead
+    const stdoutMsgs = ws.sent.filter((m) => m.includes('"stdout"'))
+    const combined = stdoutMsgs
+      .map((m) => Buffer.from(JSON.parse(m).data, 'base64').toString())
+      .join('')
+    expect(combined).toContain('err')
+  })
+})
+
+describe('handleMessage (pty mode)', () => {
+  afterEach(() => {
+    destroyAllSessions()
+  })
+
+  it('writes stdin data to the PTY', async () => {
+    const ws = makeMockWs()
+    const id = createSession(ws as never, { cmd: 'cat', tty: true, cols: 80, rows: 24 })
+
+    // In PTY mode, cat echoes via the terminal driver
+    handleMessage(id, { type: 'stdin', data: Buffer.from('hello').toString('base64') })
+
+    await waitFor(() => {
+      const stdoutMsgs = ws.sent.filter((m) => m.includes('"stdout"'))
+      const combined = stdoutMsgs
+        .map((m) => Buffer.from(JSON.parse(m).data, 'base64').toString())
+        .join('')
+      return combined.includes('hello')
+    })
+
+    destroySession(id)
+  })
+
+  it('resize actually resizes the PTY (does not throw)', () => {
+    const ws = makeMockWs()
+    const id = createSession(ws as never, { cmd: 'sleep 60', tty: true, cols: 80, rows: 24 })
+
+    // Should not throw -- and unlike pipe mode, this actually resizes
+    expect(() =>
+      handleMessage(id, { type: 'resize', cols: 120, rows: 40 })
+    ).not.toThrow()
+
+    destroySession(id)
+  })
+
+  it('signal SIGTERM kills the PTY process', async () => {
+    const ws = makeMockWs()
+    const id = createSession(ws as never, { cmd: 'sleep 60', tty: true, cols: 80, rows: 24 })
+
+    handleMessage(id, { type: 'signal', signal: 'SIGTERM' })
+
+    await waitFor(() => ws.sent.some((m) => m.includes('"exit"')), 10_000)
+    expect(ws.sent.some((m) => m.includes('"exit"'))).toBe(true)
+  }, 15_000)
+})
+
+describe('destroySession (pty mode)', () => {
+  afterEach(() => {
+    destroyAllSessions()
+  })
+
+  it('decrements the session count for PTY sessions', () => {
+    destroyAllSessions()
+    const ws = makeMockWs()
+    const id = createSession(ws as never, { cmd: 'sleep 60', tty: true, cols: 80, rows: 24 })
+    expect(getActiveSessionCount()).toBe(1)
+
+    destroySession(id)
+    expect(getActiveSessionCount()).toBe(0)
   })
 })

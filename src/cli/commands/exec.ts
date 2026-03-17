@@ -31,10 +31,16 @@ export async function execCommand(cmd: string): Promise<void> {
   params.set('cwd', validatedCwd)
 
   if (process.stdout.isTTY) {
+    params.set('tty', '1')
     const cols = process.stdout.columns
     const rows = process.stdout.rows
     if (cols) params.set('cols', String(cols))
     if (rows) params.set('rows', String(rows))
+
+    // Forward TERM so the PTY session uses the correct terminal type
+    if (process.env.TERM) {
+      params.set('env.TERM', process.env.TERM)
+    }
   }
 
   const wsUrl = `ws://127.0.0.1:${port}${EXEC_PATH}?${params.toString()}`

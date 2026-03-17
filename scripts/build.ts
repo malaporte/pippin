@@ -1,6 +1,6 @@
 import { $ } from 'bun'
 import path from 'node:path'
-import { readFileSync } from 'node:fs'
+import { readFileSync, cpSync, existsSync, mkdirSync } from 'node:fs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const src = path.join(root, 'src')

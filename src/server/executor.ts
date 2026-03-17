@@ -1,13 +1,25 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import type { ServerMessage, ClientMessage } from '../shared/types'
-import type { ServerWebSocket } from 'bun'
+import type { ServerWebSocket, Subprocess } from 'bun'
 
-interface Session {
+/** A pipe-based session (non-TTY) */
+interface PipeSession {
   id: string
+  mode: 'pipe'
   process: ChildProcess
   ws: ServerWebSocket<SessionData>
 }
+
+/** A PTY-based session (TTY / interactive) */
+interface PtySession {
+  id: string
+  mode: 'pty'
+  process: Subprocess
+  ws: ServerWebSocket<SessionData>
+}
+
+type Session = PipeSession | PtySession
 
 export interface SessionData {
   sessionId: string
@@ -33,25 +45,43 @@ function notifyCountChange(): void {
   onSessionCountChange?.(sessions.size)
 }
 
+export interface CreateSessionOptions {
+  cmd: string
+  cwd?: string
+  env?: Record<string, string>
+  tty?: boolean
+  cols?: number
+  rows?: number
+}
+
 /** Start a command execution session, wiring the process to a WebSocket */
 export function createSession(
   ws: ServerWebSocket<SessionData>,
-  cmd: string,
-  cwd?: string,
-  env?: Record<string, string>,
+  options: CreateSessionOptions,
+): string {
+  if (options.tty) {
+    return createPtySession(ws, options)
+  }
+  return createPipeSession(ws, options)
+}
+
+/** Create a pipe-based session (original behavior, for non-TTY contexts) */
+function createPipeSession(
+  ws: ServerWebSocket<SessionData>,
+  options: CreateSessionOptions,
 ): string {
   const sessionId = generateId()
 
-  const mergedEnv = { ...process.env, ...env }
+  const mergedEnv = { ...process.env, ...options.env }
 
-  const child = spawn('sh', ['-c', cmd], {
-    cwd: cwd || process.cwd(),
+  const child = spawn('sh', ['-c', options.cmd], {
+    cwd: options.cwd || process.cwd(),
     env: mergedEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   })
 
-  const session: Session = { id: sessionId, process: child, ws }
+  const session: PipeSession = { id: sessionId, mode: 'pipe', process: child, ws }
   sessions.set(sessionId, session)
   notifyCountChange()
 
@@ -80,11 +110,79 @@ export function createSession(
   return sessionId
 }
 
+/** Create a PTY-based session (for interactive/TUI apps) */
+function createPtySession(
+  ws: ServerWebSocket<SessionData>,
+  options: CreateSessionOptions,
+): string {
+  const sessionId = generateId()
+
+  const mergedEnv = { ...process.env, ...options.env }
+  // Ensure TERM is set for TUI apps; default to xterm-256color if not provided
+  if (!mergedEnv.TERM) {
+    mergedEnv.TERM = 'xterm-256color'
+  }
+
+  const cols = options.cols || 80
+  const rows = options.rows || 24
+
+  let child: Subprocess
+  try {
+    child = Bun.spawn(['sh', '-c', options.cmd], {
+      cwd: options.cwd || process.cwd(),
+      env: mergedEnv,
+      terminal: {
+        cols,
+        rows,
+        name: mergedEnv.TERM,
+        // PTY combines stdout and stderr into a single data stream
+        data(_term, data) {
+          send(ws, { type: 'stdout', data: Buffer.from(data).toString('base64') })
+        },
+      },
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    send(ws, { type: 'error', message: `Failed to allocate PTY: ${message}` })
+    send(ws, { type: 'exit', code: 1 })
+    ws.close()
+    return sessionId
+  }
+
+  const session: PtySession = { id: sessionId, mode: 'pty', process: child, ws }
+  sessions.set(sessionId, session)
+  notifyCountChange()
+
+  // Use the exited promise instead of onExit callback to avoid potential
+  // crashes during PTY teardown in Bun's native terminal implementation.
+  child.exited.then((exitCode) => {
+    try {
+      child.terminal?.close()
+    } catch {
+      // Terminal may already be closed
+    }
+    send(ws, { type: 'exit', code: exitCode ?? 1 })
+    sessions.delete(sessionId)
+    notifyCountChange()
+    ws.close()
+  })
+
+  return sessionId
+}
+
 /** Handle an incoming client message for a session */
 export function handleMessage(sessionId: string, msg: ClientMessage): void {
   const session = sessions.get(sessionId)
   if (!session) return
 
+  if (session.mode === 'pty') {
+    handlePtyMessage(session, msg)
+  } else {
+    handlePipeMessage(session, msg)
+  }
+}
+
+function handlePipeMessage(session: PipeSession, msg: ClientMessage): void {
   switch (msg.type) {
     case 'stdin': {
       const buf = Buffer.from(msg.data, 'base64')
@@ -119,16 +217,56 @@ export function handleMessage(sessionId: string, msg: ClientMessage): void {
   }
 }
 
+function handlePtyMessage(session: PtySession, msg: ClientMessage): void {
+  const terminal = session.process.terminal
+  if (!terminal) return
+
+  switch (msg.type) {
+    case 'stdin': {
+      const buf = Buffer.from(msg.data, 'base64')
+      terminal.write(buf)
+      break
+    }
+    case 'close_stdin': {
+      // Write EOF character (Ctrl+D) to the PTY
+      terminal.write('\x04')
+      break
+    }
+    case 'signal': {
+      // Send the signal to the subprocess
+      const signalMap: Record<string, NodeJS.Signals> = {
+        SIGINT: 'SIGINT',
+        SIGTERM: 'SIGTERM',
+        SIGKILL: 'SIGKILL',
+      }
+      const sig = signalMap[msg.signal]
+      if (sig) {
+        session.process.kill(sig)
+      }
+      break
+    }
+    case 'resize': {
+      terminal.resize(msg.cols, msg.rows)
+      break
+    }
+  }
+}
+
 /** Clean up a session when the WebSocket closes */
 export function destroySession(sessionId: string): void {
   const session = sessions.get(sessionId)
   if (!session) return
 
   try {
-    if (session.process.pid) {
-      process.kill(-session.process.pid, 'SIGTERM')
+    if (session.mode === 'pty') {
+      session.process.terminal?.close()
+      session.process.kill()
     } else {
-      session.process.kill('SIGTERM')
+      if (session.process.pid) {
+        process.kill(-session.process.pid, 'SIGTERM')
+      } else {
+        session.process.kill('SIGTERM')
+      }
     }
   } catch {
     // Process may have already exited

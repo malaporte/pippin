@@ -77,6 +77,8 @@ export interface ExecParams {
   env?: Record<string, string>
   cols?: number
   rows?: number
+  /** When true, the server allocates a PTY for the session (enables TUI apps) */
+  tty?: boolean
 }
 
 // --- Workspace Config (.pippin.toml) ---

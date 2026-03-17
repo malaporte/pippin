@@ -237,3 +237,105 @@ describe('WebSocket /exec', () => {
     expect(afterBody.activeSessions).toBe(before)
   })
 })
+
+// ---------------------------------------------------------------------------
+// WebSocket /exec with tty=1 — PTY mode end-to-end
+// ---------------------------------------------------------------------------
+
+describe('WebSocket /exec (tty mode)', () => {
+  it('receives stdout and exit(0) for a simple command in PTY mode', async () => {
+    const url = `${WS_URL}/exec?cmd=${encodeURIComponent('printf hello')}&tty=1&cols=80&rows=24`
+    const messages = await runOverWebSocket(url)
+
+    const parsed = messages.map((m) => JSON.parse(m) as { type: string; data?: string; code?: number })
+
+    const stdout = parsed.filter((m) => m.type === 'stdout')
+    expect(stdout.length).toBeGreaterThan(0)
+
+    const combined = stdout.map((m) => Buffer.from(m.data!, 'base64').toString()).join('')
+    expect(combined).toContain('hello')
+
+    const exitMsg = parsed.find((m) => m.type === 'exit')
+    expect(exitMsg).toBeDefined()
+    expect(exitMsg!.code).toBe(0)
+  })
+
+  it('receives exit code for a failing command in PTY mode', async () => {
+    const url = `${WS_URL}/exec?cmd=${encodeURIComponent('exit 42')}&tty=1&cols=80&rows=24`
+    const messages = await runOverWebSocket(url)
+    const parsed = messages.map((m) => JSON.parse(m) as { type: string; code?: number })
+    const exitMsg = parsed.find((m) => m.type === 'exit')
+    expect(exitMsg).toBeDefined()
+    expect(exitMsg!.code).toBe(42)
+  })
+
+  it('merges stderr into stdout in PTY mode (no separate stderr messages)', async () => {
+    const url = `${WS_URL}/exec?cmd=${encodeURIComponent('printf err_pty >&2')}&tty=1&cols=80&rows=24`
+    const messages = await runOverWebSocket(url)
+    const parsed = messages.map((m) => JSON.parse(m) as { type: string; data?: string })
+
+    // No separate stderr messages in PTY mode
+    const stderrMsgs = parsed.filter((m) => m.type === 'stderr')
+    expect(stderrMsgs.length).toBe(0)
+
+    // Stderr output appears in stdout
+    const combined = parsed
+      .filter((m) => m.type === 'stdout')
+      .map((m) => Buffer.from(m.data!, 'base64').toString())
+      .join('')
+    expect(combined).toContain('err_pty')
+  })
+
+  it('handles stdin in PTY mode', async () => {
+    const url = `${WS_URL}/exec?cmd=${encodeURIComponent('cat')}&tty=1&cols=80&rows=24`
+    const messages = await runOverWebSocket(url, (ws) => {
+      // In a real PTY, Ctrl+D only signals EOF at the start of a line,
+      // so we need a newline before sending close_stdin (Ctrl+D).
+      ws.send(JSON.stringify({ type: 'stdin', data: Buffer.from('pty_ping\n').toString('base64') }))
+      // Send Ctrl+D to signal EOF to the PTY
+      ws.send(JSON.stringify({ type: 'close_stdin' }))
+    })
+
+    const parsed = messages.map((m) => JSON.parse(m) as { type: string; data?: string })
+    const combined = parsed
+      .filter((m) => m.type === 'stdout')
+      .map((m) => Buffer.from(m.data!, 'base64').toString())
+      .join('')
+    expect(combined).toContain('pty_ping')
+  })
+
+  it('respects cwd in PTY mode', async () => {
+    const url = `${WS_URL}/exec?cmd=${encodeURIComponent('pwd')}&cwd=${encodeURIComponent('/tmp')}&tty=1&cols=80&rows=24`
+    const messages = await runOverWebSocket(url)
+    const parsed = messages.map((m) => JSON.parse(m) as { type: string; data?: string })
+    const combined = parsed
+      .filter((m) => m.type === 'stdout')
+      .map((m) => Buffer.from(m.data!, 'base64').toString())
+      .join('')
+    expect(combined.trim()).toMatch(/\/tmp/)
+  })
+
+  it('passes env vars in PTY mode', async () => {
+    const url =
+      `${WS_URL}/exec?cmd=${encodeURIComponent('printf $PIPPIN_PTY_VAR')}&tty=1&cols=80&rows=24&env.PIPPIN_PTY_VAR=pty_ok`
+    const messages = await runOverWebSocket(url)
+    const parsed = messages.map((m) => JSON.parse(m) as { type: string; data?: string })
+    const combined = parsed
+      .filter((m) => m.type === 'stdout')
+      .map((m) => Buffer.from(m.data!, 'base64').toString())
+      .join('')
+    expect(combined).toContain('pty_ok')
+  })
+
+  it('non-tty mode still works (tty param absent)', async () => {
+    // Ensure the default pipe mode still functions alongside PTY mode
+    const url = `${WS_URL}/exec?cmd=${encodeURIComponent('printf pipe_mode')}`
+    const messages = await runOverWebSocket(url)
+    const parsed = messages.map((m) => JSON.parse(m) as { type: string; data?: string })
+    const combined = parsed
+      .filter((m) => m.type === 'stdout')
+      .map((m) => Buffer.from(m.data!, 'base64').toString())
+      .join('')
+    expect(combined).toContain('pipe_mode')
+  })
+})

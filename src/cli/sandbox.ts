@@ -402,11 +402,11 @@ function prepareShareDir(workspaceRoot: string): string {
   }
 
   const dest = path.join(shareDir, 'pippin-server')
-  // Skip copy if file is identical (same size)
+  // Skip copy if file content is identical (compared by SHA-256 hash)
   try {
-    const srcStat = fs.statSync(serverBinary)
-    const dstStat = fs.statSync(dest)
-    if (srcStat.size === dstStat.size) return shareDir
+    const srcHash = crypto.createHash('sha256').update(fs.readFileSync(serverBinary)).digest('hex')
+    const dstHash = crypto.createHash('sha256').update(fs.readFileSync(dest)).digest('hex')
+    if (srcHash === dstHash) return shareDir
   } catch {
     // Destination doesn't exist — proceed with copy
   }
@@ -440,10 +440,12 @@ function resolveServerBinary(): string | null {
 
   // Walk up from this source file to find the project root's dist/ directory
   // for local source runs, and also check the compiled CLI's output dir.
+  // Prefer dist/ over execDir so that freshly-built binaries take priority
+  // over stale copies that may live alongside the Bun/pippin executable.
   const candidates = [
-    path.join(execDir, binaryName),
     path.join(import.meta.dirname, '..', '..', 'dist', binaryName),
     path.join(import.meta.dirname, binaryName),
+    path.join(execDir, binaryName),
   ]
 
   for (const candidate of candidates) {

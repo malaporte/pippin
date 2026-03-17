@@ -94,6 +94,7 @@ export function startServer(
           cwd: url.searchParams.get('cwd') || undefined,
           cols: url.searchParams.has('cols') ? parseInt(url.searchParams.get('cols')!, 10) : undefined,
           rows: url.searchParams.has('rows') ? parseInt(url.searchParams.get('rows')!, 10) : undefined,
+          tty: url.searchParams.get('tty') === '1',
         }
 
         // Parse env from repeated env.KEY=VALUE query params
@@ -125,7 +126,14 @@ export function startServer(
       open(ws) {
         // Extract exec params from the upgrade data
         const data = ws.data as SessionData & ExecParams
-        const sessionId = createSession(ws, data.cmd, data.cwd, data.env)
+        const sessionId = createSession(ws, {
+          cmd: data.cmd,
+          cwd: data.cwd,
+          env: data.env,
+          tty: data.tty,
+          cols: data.cols,
+          rows: data.rows,
+        })
         ws.data.sessionId = sessionId
       },
 
