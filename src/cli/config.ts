@@ -7,13 +7,18 @@ import type { GlobalConfig, DotfileEntry } from '../shared/types'
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'pippin')
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
 
+/** Resolved global config: fields with defaults are always present, optional overrides may be undefined */
+export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'idleTimeout' | 'portRangeStart' | 'dotfiles' | 'environment'>> & Pick<GlobalConfig, 'image' | 'dockerfile'>
+
 /** Read the global pippin config, returning defaults for missing values */
-export function readGlobalConfig(): Required<GlobalConfig> {
-  const defaults: Required<GlobalConfig> = {
+export function readGlobalConfig(): ResolvedGlobalConfig {
+  const defaults: ResolvedGlobalConfig = {
     idleTimeout: DEFAULT_IDLE_TIMEOUT,
     portRangeStart: DEFAULT_PORT,
     dotfiles: [],
     environment: [],
+    image: undefined,
+    dockerfile: undefined,
   }
 
   try {
@@ -32,6 +37,12 @@ export function readGlobalConfig(): Required<GlobalConfig> {
       environment: Array.isArray(parsed.environment)
         ? parsed.environment.filter(isValidEnvName)
         : defaults.environment,
+      image: typeof parsed.image === 'string' && parsed.image.length > 0
+        ? parsed.image
+        : defaults.image,
+      dockerfile: typeof parsed.dockerfile === 'string' && parsed.dockerfile.length > 0
+        ? parsed.dockerfile
+        : defaults.dockerfile,
     }
   } catch {
     return defaults

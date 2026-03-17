@@ -7,6 +7,12 @@ const TEMPLATE = `# Pippin sandbox configuration
 [sandbox]
 # idle_timeout = 900  # seconds before the sandbox auto-shuts down
 
+# Use a custom Docker image for the sandbox:
+# image = "my-registry/my-image:latest"
+
+# Or build a local Dockerfile for the sandbox:
+# dockerfile = "./Dockerfile.pippin"
+
 # Mount additional paths into the sandbox:
 # [[sandbox.mounts]]
 # path = "~/Developer/shared-libs"

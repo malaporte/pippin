@@ -70,6 +70,70 @@ readonly = true
     expect(result).not.toBeNull()
     expect(result!.config).toEqual({})
   })
+
+  it('parses image from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+image = "my-registry/custom:latest"
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.image).toBe('my-registry/custom:latest')
+    expect(result!.config.sandbox?.dockerfile).toBeUndefined()
+  })
+
+  it('parses dockerfile from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+dockerfile = "./Dockerfile.pippin"
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.dockerfile).toBe('./Dockerfile.pippin')
+    expect(result!.config.sandbox?.image).toBeUndefined()
+  })
+
+  it('parses both image and dockerfile from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+image = "my-registry/custom:latest"
+dockerfile = "./Dockerfile.pippin"
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.image).toBe('my-registry/custom:latest')
+    expect(result!.config.sandbox?.dockerfile).toBe('./Dockerfile.pippin')
+  })
+
+  it('ignores invalid image values in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+image = 42
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.image).toBeUndefined()
+  })
+
+  it('ignores empty string image in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+image = ""
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.image).toBeUndefined()
+  })
 })
 
 describe('validateCwd', () => {

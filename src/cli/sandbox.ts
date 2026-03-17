@@ -1,8 +1,10 @@
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { readGlobalConfig, expandHome } from './config'
+import type { ResolvedGlobalConfig } from './config'
 import {
   validateState,
   readState,
@@ -62,6 +64,9 @@ async function startSandbox(
   const controlPort = port + 1
   const idleTimeout = workspaceConfig.sandbox?.idle_timeout ?? globalConfig.idleTimeout
 
+  // Resolve the custom Docker image (if configured)
+  const resolvedImage = resolveImage(workspaceRoot, workspaceConfig, globalConfig)
+
   // Prepare the share directory with the pippin-server binary
   const shareDir = prepareShareDir(workspaceRoot)
 
@@ -70,7 +75,7 @@ async function startSandbox(
   const shellEnv = getShellEnv()
 
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles, globalConfig.environment, shellEnv)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles, globalConfig.environment, shellEnv, resolvedImage)
 
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
@@ -135,6 +140,7 @@ async function startSandbox(
     controlPort,
     leashPid: leashProcess.pid!,
     startedAt: new Date().toISOString(),
+    image: resolvedImage,
   }
   writeState(state)
 
@@ -198,6 +204,101 @@ export async function stopAllSandboxes(): Promise<void> {
   }
 }
 
+/**
+ * Resolve the Docker image to use for the sandbox.
+ *
+ * Priority (first match wins):
+ *   1. workspace sandbox.image
+ *   2. workspace sandbox.dockerfile  (built into a tagged image)
+ *   3. global image
+ *   4. global dockerfile             (built into a tagged image)
+ *   5. undefined  → leash uses its default image
+ */
+function resolveImage(
+  workspaceRoot: string,
+  workspaceConfig: WorkspaceConfig,
+  globalConfig: ResolvedGlobalConfig,
+): string | undefined {
+  // Workspace-level image takes top priority
+  if (workspaceConfig.sandbox?.image) {
+    return workspaceConfig.sandbox.image
+  }
+
+  // Workspace-level dockerfile
+  if (workspaceConfig.sandbox?.dockerfile) {
+    const dockerfilePath = path.resolve(workspaceRoot, expandHome(workspaceConfig.sandbox.dockerfile))
+    return buildDockerImage(dockerfilePath)
+  }
+
+  // Global-level image
+  if (globalConfig.image) {
+    return globalConfig.image
+  }
+
+  // Global-level dockerfile
+  if (globalConfig.dockerfile) {
+    const dockerfilePath = path.resolve(expandHome(globalConfig.dockerfile))
+    return buildDockerImage(dockerfilePath)
+  }
+
+  return undefined
+}
+
+/**
+ * Build a Docker image from a Dockerfile, tagged by content hash.
+ * Skips the build if an image with the same hash tag already exists.
+ * Returns the image tag string.
+ */
+function buildDockerImage(dockerfilePath: string): string {
+  if (!fs.existsSync(dockerfilePath)) {
+    process.stderr.write(`pippin: dockerfile not found: ${dockerfilePath}\n`)
+    process.exit(1)
+  }
+
+  // Compute a content hash of the Dockerfile
+  const content = fs.readFileSync(dockerfilePath)
+  const hash = crypto.createHash('sha256').update(content).digest('hex').slice(0, 12)
+  const tag = `pippin-custom:${hash}`
+
+  // Check if this image already exists
+  const inspect = spawnSync('docker', ['image', 'inspect', tag], {
+    encoding: 'utf-8',
+    timeout: 10_000,
+    stdio: ['ignore', 'ignore', 'ignore'],
+  })
+
+  if (inspect.status === 0) {
+    // Image already exists with this hash — skip build
+    return tag
+  }
+
+  // Build the image
+  const context = path.dirname(dockerfilePath)
+  const spinner = new Spinner('building custom sandbox image')
+  spinner.start()
+
+  const build = spawnSync('docker', ['build', '-t', tag, '-f', dockerfilePath, context], {
+    encoding: 'utf-8',
+    timeout: 300_000, // 5 minute timeout for builds
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  spinner.stop()
+
+  if (build.status !== 0) {
+    process.stderr.write(`pippin: failed to build custom sandbox image\n`)
+    if (build.stderr?.trim()) {
+      process.stderr.write(build.stderr)
+    }
+    if (build.stdout?.trim()) {
+      process.stderr.write(build.stdout)
+    }
+    process.exit(1)
+  }
+
+  return tag
+}
+
 /** Build the leash CLI arguments */
 function buildLeashArgs(
   port: number,
@@ -206,12 +307,18 @@ function buildLeashArgs(
   dotfiles: { path: string; readonly?: boolean }[],
   environment: string[],
   shellEnv: Record<string, string>,
+  image?: string,
 ): string[] {
   const args: string[] = [
     '-p', `${port}:${port}`,
     '-l', `:${controlPort}`,
     '-I',
   ]
+
+  // Use a custom image if configured
+  if (image) {
+    args.push('--image', image)
+  }
 
   // Add dotfile mounts from global config
   for (const dotfile of dotfiles) {
@@ -340,6 +447,13 @@ function resolveServerBinary(): string | null {
 /** Remove stale Docker containers from leash images */
 function removeContainers(): void {
   const images = [LEASH_CODER_IMAGE, LEASH_IMAGE]
+
+  // Also clean up containers from custom images tracked in sandbox states
+  for (const state of listStates()) {
+    if (state.image && !images.includes(state.image)) {
+      images.push(state.image)
+    }
+  }
 
   for (const image of images) {
     try {

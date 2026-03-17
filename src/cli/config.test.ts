@@ -132,19 +132,77 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
     expect(cfg.environment).toEqual([])
   })
 
-  it('filters out invalid environment entries', async () => {
+  it('reads back a written config with image', async () => {
+    const v = Date.now()
+    const { writeGlobalConfig, readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    writeGlobalConfig({ image: 'my-registry/custom:latest' })
+
+    const cfg = readGlobalConfig()
+    expect(cfg.image).toBe('my-registry/custom:latest')
+    expect(cfg.dockerfile).toBeUndefined()
+  })
+
+  it('reads back a written config with dockerfile', async () => {
+    const v = Date.now()
+    const { writeGlobalConfig, readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    writeGlobalConfig({ dockerfile: '~/my-dockerfiles/Dockerfile.pippin' })
+
+    const cfg = readGlobalConfig()
+    expect(cfg.dockerfile).toBe('~/my-dockerfiles/Dockerfile.pippin')
+    expect(cfg.image).toBeUndefined()
+  })
+
+  it('ignores invalid image values', async () => {
     const cfgDir = path.join(tmpDir, '.config', 'pippin')
     fs.mkdirSync(cfgDir, { recursive: true })
     fs.writeFileSync(
       path.join(cfgDir, 'config.json'),
-      JSON.stringify({
-        environment: ['GITHUB_TOKEN', '', 42, null, 'NPM_TOKEN'],
-      }),
+      JSON.stringify({ image: 42 }),
     )
 
     const v = Date.now()
     const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
     const cfg = readGlobalConfig()
-    expect(cfg.environment).toEqual(['GITHUB_TOKEN', 'NPM_TOKEN'])
+    expect(cfg.image).toBeUndefined()
+  })
+
+  it('ignores empty string image', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cfgDir, 'config.json'),
+      JSON.stringify({ image: '' }),
+    )
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.image).toBeUndefined()
+  })
+
+  it('ignores invalid dockerfile values', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cfgDir, 'config.json'),
+      JSON.stringify({ dockerfile: true }),
+    )
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.dockerfile).toBeUndefined()
+  })
+
+  it('defaults image and dockerfile to undefined when not present', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({ idleTimeout: 300 }))
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.image).toBeUndefined()
+    expect(cfg.dockerfile).toBeUndefined()
   })
 })

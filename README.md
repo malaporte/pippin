@@ -75,6 +75,12 @@ pippin run bash
 # Override the global idle timeout (seconds)
 idle_timeout = 900
 
+# Use a custom Docker image for the sandbox
+image = "my-registry/my-image:latest"
+
+# Or build a local Dockerfile instead (relative to workspace root)
+# dockerfile = "./Dockerfile.pippin"
+
 # Extra paths to mount into the sandbox
 [[sandbox.mounts]]
 path = "/shared/libs"
@@ -87,11 +93,46 @@ readonly = true
 {
   "idleTimeout": 900,
   "portRangeStart": 9111,
-  "dotfiles": ["/Users/you/.zshrc", "/Users/you/.gitconfig"]
+  "dotfiles": ["/Users/you/.zshrc", "/Users/you/.gitconfig"],
+  "image": "my-registry/my-image:latest"
 }
 ```
 
 Dotfiles are mounted into every sandbox so your shell environment and git config are available.
+
+### Custom Docker image
+
+By default, sandboxes use the standard leash coder image. You can override this with a pre-built image or a local Dockerfile, at either the global or workspace level.
+
+**Pre-built image** — set `image` to any Docker image reference:
+
+```toml
+# .pippin.toml
+[sandbox]
+image = "my-registry/custom-dev:latest"
+```
+
+```json
+// ~/.config/pippin/config.json
+{ "image": "my-registry/custom-dev:latest" }
+```
+
+**Local Dockerfile** — set `dockerfile` to a path (relative paths resolve from the workspace root in `.pippin.toml`, or as absolute/`~`-prefixed in the global config):
+
+```toml
+# .pippin.toml
+[sandbox]
+dockerfile = "./Dockerfile.pippin"
+```
+
+```json
+// ~/.config/pippin/config.json
+{ "dockerfile": "~/.config/pippin/Dockerfile" }
+```
+
+When a Dockerfile is used, Pippin builds the image locally and tags it by content hash (`pippin-custom:<sha256>`). The build is skipped on subsequent runs unless the Dockerfile changes.
+
+**Priority**: workspace `image` > workspace `dockerfile` > global `image` > global `dockerfile`. If nothing is configured, leash uses its default image.
 
 ## Architecture
 

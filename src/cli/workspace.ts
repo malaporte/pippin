@@ -111,6 +111,14 @@ function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
           typeof m === 'object' && m !== null && typeof (m as Record<string, unknown>).path === 'string',
         )
     }
+
+    if (typeof sandbox.image === 'string' && sandbox.image.length > 0) {
+      config.sandbox.image = sandbox.image
+    }
+
+    if (typeof sandbox.dockerfile === 'string' && sandbox.dockerfile.length > 0) {
+      config.sandbox.dockerfile = sandbox.dockerfile
+    }
   }
 
   return config

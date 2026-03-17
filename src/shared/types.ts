@@ -90,6 +90,10 @@ export interface WorkspaceConfig {
   sandbox?: {
     idle_timeout?: number
     mounts?: MountEntry[]
+    /** Override the Docker image used for the sandbox container */
+    image?: string
+    /** Path to a Dockerfile to build and use for the sandbox container */
+    dockerfile?: string
   }
 }
 
@@ -105,6 +109,10 @@ export interface GlobalConfig {
   portRangeStart?: number
   dotfiles?: DotfileEntry[]
   environment?: string[]
+  /** Override the Docker image used for the sandbox container */
+  image?: string
+  /** Path to a Dockerfile to build and use for the sandbox container */
+  dockerfile?: string
 }
 
 // --- Sandbox State ---
@@ -116,4 +124,6 @@ export interface SandboxState {
   controlPort?: number
   leashPid: number
   startedAt: string
+  /** The Docker image used for this sandbox (if a custom image was configured) */
+  image?: string
 }
