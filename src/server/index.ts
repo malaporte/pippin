@@ -16,7 +16,12 @@ import { createIdleTimer, readIdleTimeout } from './idle'
 import type { SessionData } from './executor'
 import type { ExecParams, ClientMessage, HealthResponse } from '../shared/types'
 
-const VERSION = '0.1.0'
+// __VERSION__ is injected at compile time via `bun build --define`.
+// When running source directly (e.g. in tests), fall back to package.json.
+const VERSION: string = (typeof __VERSION__ !== 'undefined'
+  ? __VERSION__
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  : ((await import('../../package.json')) as any).default.version) as string
 
 // Bun.serve's fetch handler receives a Request with a string `url` property
 // at runtime, but bun-types may not expose it depending on the lib config.

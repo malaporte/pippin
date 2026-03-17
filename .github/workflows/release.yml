@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # Required to create GitHub Releases
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build all binaries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bun run build
+
+      - name: Package binaries as tarballs
+        run: |
+          cd dist
+          for binary in pippin-darwin-arm64 pippin-darwin-x64 pippin-linux-x64 pippin-linux-arm64 pippin-server-linux-x64 pippin-server-linux-arm64; do
+            tar -czf "${binary}.tar.gz" "${binary}"
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/pippin-darwin-arm64.tar.gz
+            dist/pippin-darwin-x64.tar.gz
+            dist/pippin-linux-x64.tar.gz
+            dist/pippin-linux-arm64.tar.gz
+            dist/pippin-server-linux-x64.tar.gz
+            dist/pippin-server-linux-arm64.tar.gz

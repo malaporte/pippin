@@ -2,10 +2,14 @@ import { execCommand } from './commands/exec'
 import { initCommand } from './commands/init'
 import { statusCommand } from './commands/status'
 import { stopCommand } from './commands/stop'
+import { checkForUpdate } from './update-check'
 
 // --- Parse Arguments ---
 
 const args = process.argv.slice(2)
+
+// Start the update check in the background immediately (non-blocking)
+const updateCheckPromise = checkForUpdate().catch(() => null)
 
 if (args.length === 0) {
   printUsage()
@@ -54,7 +58,7 @@ switch (firstArg) {
 
   case '--version':
   case '-v': {
-    process.stdout.write('pippin 0.1.0\n')
+    process.stdout.write(`pippin ${__VERSION__}\n`)
     break
   }
 
@@ -63,6 +67,12 @@ switch (firstArg) {
     printUsage()
     process.exit(1)
   }
+}
+
+// Print any update notification after the command completes
+const updateNotice = await updateCheckPromise
+if (updateNotice) {
+  process.stderr.write(updateNotice)
 }
 
 function printUsage(): void {

@@ -1,5 +1,6 @@
 import { $ } from 'bun'
 import path from 'node:path'
+import { readFileSync } from 'node:fs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const src = path.join(root, 'src')
@@ -8,6 +9,11 @@ const dist = path.join(root, 'dist')
 const args = process.argv.slice(2)
 const buildServer = args.length === 0 || args.includes('--server')
 const buildCli = args.length === 0 || args.includes('--cli')
+
+// Resolve version: prefer VERSION env var (set by CI from git tag), else package.json
+const pkgVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf-8')).version as string
+const version = process.env.VERSION ?? pkgVersion
+const defineVersion = `--define:__VERSION__='"${version}"'`
 
 async function buildServerBinaries() {
   const entry = path.join(src, 'server', 'index.ts')
@@ -18,7 +24,7 @@ async function buildServerBinaries() {
   for (const target of targets) {
     const arch = target.endsWith('x64') ? 'x64' : 'arm64'
     const outfile = path.join(dist, `pippin-server-linux-${arch}`)
-    await $`bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv --target=${target} ${entry} --outfile ${outfile}`
+    await $`bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv ${defineVersion} --target=${target} ${entry} --outfile ${outfile}`
   }
 }
 
@@ -36,7 +42,7 @@ async function buildCliBinary() {
   for (const target of targets) {
     const [, platform, arch] = target.split('-')
     const outfile = path.join(dist, `pippin-${platform}-${arch}`)
-    await $`bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv --target=${target} ${entry} --outfile ${outfile}`
+    await $`bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv ${defineVersion} --target=${target} ${entry} --outfile ${outfile}`
   }
 }
 
