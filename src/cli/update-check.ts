@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { VERSION } from './version'
 
 const GITHUB_REPO = 'malaporte/pippin'
 const CACHE_FILE = path.join(os.homedir(), '.local', 'state', 'pippin', 'update-check.json')
@@ -50,7 +51,7 @@ async function fetchLatestVersion(): Promise<string | null> {
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
       signal: controller.signal,
-      headers: { 'User-Agent': `pippin/${__VERSION__}` },
+      headers: { 'User-Agent': `pippin/${VERSION}` },
     })
     if (!res.ok) return null
     const data = (await res.json()) as GitHubRelease
@@ -81,10 +82,10 @@ export async function checkForUpdate(): Promise<string | null> {
     writeCache({ checkedAt: now, latestVersion })
   }
 
-  if (latestVersion && isNewer(__VERSION__, latestVersion)) {
+  if (latestVersion && isNewer(VERSION, latestVersion)) {
     return (
-      `\nA new version of pippin is available: ${latestVersion} (current: ${__VERSION__})\n` +
-      `Upgrade: curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/install.sh | bash\n`
+      `\nA new version of pippin is available: ${latestVersion} (current: ${VERSION})\n` +
+      `Upgrade: pippin update\n`
     )
   }
 

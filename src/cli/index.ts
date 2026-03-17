@@ -3,7 +3,9 @@ import { initCommand } from './commands/init'
 import { monitorCommand } from './commands/monitor'
 import { statusCommand } from './commands/status'
 import { stopCommand } from './commands/stop'
+import { updateCommand } from './commands/update'
 import { checkForUpdate } from './update-check'
+import { VERSION } from './version'
 
 // --- Parse Arguments ---
 
@@ -56,6 +58,12 @@ switch (firstArg) {
     break
   }
 
+  case 'update': {
+    const force = args.includes('--force')
+    await updateCommand(force)
+    break
+  }
+
   case '--help':
   case '-h': {
     printUsage()
@@ -64,7 +72,7 @@ switch (firstArg) {
 
   case '--version':
   case '-v': {
-    process.stdout.write(`pippin ${__VERSION__}\n`)
+    process.stdout.write(`pippin ${VERSION}\n`)
     break
   }
 
@@ -88,6 +96,7 @@ function printUsage(): void {
        pippin status [--all]      show sandbox status
        pippin stop [--all]        stop sandbox(es)
        pippin monitor             open the leash Control UI in your browser
+       pippin update [--force]    update pippin to the latest version
        pippin --help              show this help
        pippin --version           show version
 `,
