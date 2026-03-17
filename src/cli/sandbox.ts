@@ -434,10 +434,14 @@ function resolveServerBinary(): string | null {
   const arch = os.arch() === 'arm64' ? 'arm64' : 'x64'
   const binaryName = `pippin-server-linux-${arch}`
 
-  // Walk up from this source file to find the project root's dist/ directory.
-  // From src/cli/sandbox.ts: ../../dist
-  // From a compiled binary the executable itself sits in dist/, so: ./
+  // Check the installed binary directory first. GitHub installs place the
+  // server binary alongside the `pippin` executable in the user's bin dir.
+  const execDir = path.dirname(process.execPath)
+
+  // Walk up from this source file to find the project root's dist/ directory
+  // for local source runs, and also check the compiled CLI's output dir.
   const candidates = [
+    path.join(execDir, binaryName),
     path.join(import.meta.dirname, '..', '..', 'dist', binaryName),
     path.join(import.meta.dirname, binaryName),
   ]
