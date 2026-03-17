@@ -13,7 +13,7 @@ const buildCli = args.length === 0 || args.includes('--cli')
 // Resolve version: prefer VERSION env var (set by CI from git tag), else package.json
 const pkgVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf-8')).version as string
 const version = process.env.VERSION ?? pkgVersion
-const defineVersion = `--define:__VERSION__='"${version}"'`
+const defineVersion = `--define:__VERSION__=\\\"${version}\\\"`
 
 async function buildServerBinaries() {
   const entry = path.join(src, 'server', 'index.ts')
