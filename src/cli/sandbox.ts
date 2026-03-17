@@ -65,12 +65,12 @@ async function startSandbox(
   // Prepare the share directory with the pippin-server binary
   const shareDir = prepareShareDir(workspaceRoot)
 
-  // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles)
-
   // Resolve the user's shell environment before starting the spinner — the
   // login shell spawn must not happen while we hold the TTY in spinner mode.
   const shellEnv = getShellEnv()
+
+  // Build the leash command
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles, globalConfig.environment, shellEnv)
 
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
@@ -204,6 +204,8 @@ function buildLeashArgs(
   controlPort: number,
   workspaceConfig: WorkspaceConfig,
   dotfiles: { path: string; readonly?: boolean }[],
+  environment: string[],
+  shellEnv: Record<string, string>,
 ): string[] {
   const args: string[] = [
     '-p', `${port}:${port}`,
@@ -234,6 +236,13 @@ function buildLeashArgs(
 
   // Set the pippin-server port and idle timeout via env
   args.push('-e', `PIPPIN_PORT=${port}`)
+
+  // Forward host environment variables from the global config
+  for (const name of environment) {
+    if (name in shellEnv) {
+      args.push('-e', `${name}=${shellEnv[name]}`)
+    }
+  }
 
   // The command to run inside the container
   args.push('--', '/leash/pippin-server')

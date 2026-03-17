@@ -104,6 +104,7 @@ export interface GlobalConfig {
   idleTimeout?: number
   portRangeStart?: number
   dotfiles?: DotfileEntry[]
+  environment?: string[]
 }
 
 // --- Sandbox State ---

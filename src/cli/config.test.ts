@@ -57,7 +57,7 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
   it('reads back a written config', async () => {
     const v = Date.now()
     const { writeGlobalConfig, readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
-    writeGlobalConfig({ idleTimeout: 600, portRangeStart: 10000, dotfiles: [{ path: '~/.zshrc' }] })
+    writeGlobalConfig({ idleTimeout: 600, portRangeStart: 10000, dotfiles: [{ path: '~/.zshrc' }], environment: ['GITHUB_TOKEN', 'NPM_TOKEN'] })
 
     const cfgPath = path.join(tmpDir, '.config', 'pippin', 'config.json')
     expect(fs.existsSync(cfgPath)).toBe(true)
@@ -67,6 +67,7 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
     expect(cfg.portRangeStart).toBe(10000)
     expect(cfg.dotfiles).toHaveLength(1)
     expect(cfg.dotfiles[0].path).toBe('~/.zshrc')
+    expect(cfg.environment).toEqual(['GITHUB_TOKEN', 'NPM_TOKEN'])
   })
 
   it('uses defaults for invalid numeric values', async () => {
@@ -118,5 +119,32 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
     expect(cfg.idleTimeout).toBe(900)
     expect(cfg.portRangeStart).toBe(9111)
     expect(cfg.dotfiles).toEqual([])
+  })
+
+  it('defaults environment to empty array when not present', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({ idleTimeout: 300 }))
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.environment).toEqual([])
+  })
+
+  it('filters out invalid environment entries', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cfgDir, 'config.json'),
+      JSON.stringify({
+        environment: ['GITHUB_TOKEN', '', 42, null, 'NPM_TOKEN'],
+      }),
+    )
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.environment).toEqual(['GITHUB_TOKEN', 'NPM_TOKEN'])
   })
 })

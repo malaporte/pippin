@@ -13,6 +13,7 @@ export function readGlobalConfig(): Required<GlobalConfig> {
     idleTimeout: DEFAULT_IDLE_TIMEOUT,
     portRangeStart: DEFAULT_PORT,
     dotfiles: [],
+    environment: [],
   }
 
   try {
@@ -28,6 +29,9 @@ export function readGlobalConfig(): Required<GlobalConfig> {
       dotfiles: Array.isArray(parsed.dotfiles)
         ? parsed.dotfiles.filter(isValidDotfileEntry)
         : defaults.dotfiles,
+      environment: Array.isArray(parsed.environment)
+        ? parsed.environment.filter(isValidEnvName)
+        : defaults.environment,
     }
   } catch {
     return defaults
@@ -52,4 +56,8 @@ function isValidDotfileEntry(entry: unknown): entry is DotfileEntry {
   if (typeof entry !== 'object' || entry === null) return false
   const obj = entry as Record<string, unknown>
   return typeof obj.path === 'string' && obj.path.length > 0
+}
+
+function isValidEnvName(entry: unknown): entry is string {
+  return typeof entry === 'string' && entry.length > 0
 }
