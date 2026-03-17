@@ -192,7 +192,7 @@ The CLI and server communicate over a local WebSocket connection. The server bin
 ## Development
 
 ```sh
-bun test          # run tests
+bun run test      # run tests with Vitest
 bun run typecheck # type-check without building
 bun run build     # build all binaries to dist/
 ```

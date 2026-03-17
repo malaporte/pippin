@@ -27,11 +27,28 @@ describe('expandHome', () => {
 })
 
 describe('readGlobalConfig', () => {
-  it('returns defaults when no config file exists', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pippin-cfg-')))
+    vi.stubEnv('HOME', tmpDir)
+    vi.spyOn(os, 'homedir').mockReturnValue(tmpDir)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns defaults when no config file exists', async () => {
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
     const config = readGlobalConfig()
     expect(config.idleTimeout).toBe(900)
     expect(config.portRangeStart).toBe(9111)
     expect(config.dotfiles).toEqual([])
+    expect(config.environment).toEqual([])
   })
 })
 
