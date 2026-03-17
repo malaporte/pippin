@@ -32,6 +32,9 @@ async function showWorkspaceStatus(): Promise<void> {
   process.stdout.write(`workspace: ${workspace.root}\n`)
   process.stdout.write(`status:    ${healthy ? 'running' : alive ? 'unhealthy' : 'dead'}\n`)
   process.stdout.write(`port:      ${state.port}\n`)
+  if (state.controlPort) {
+    process.stdout.write(`control:   ${state.controlPort}\n`)
+  }
   process.stdout.write(`pid:       ${state.leashPid}\n`)
   process.stdout.write(`started:   ${state.startedAt}\n`)
 }
@@ -50,7 +53,7 @@ async function showAllStatus(): Promise<void> {
     const status = healthy ? 'running' : alive ? 'unhealthy' : 'dead'
 
     process.stdout.write(
-      `${state.workspaceRoot}  ${status}  port=${state.port}  pid=${state.leashPid}  started=${state.startedAt}\n`,
+      `${state.workspaceRoot}  ${status}  port=${state.port}${state.controlPort ? `  control=${state.controlPort}` : ''}  pid=${state.leashPid}  started=${state.startedAt}\n`,
     )
   }
 }

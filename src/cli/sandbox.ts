@@ -59,13 +59,14 @@ async function startSandbox(
   removeContainers()
 
   const port = allocatePort(globalConfig.portRangeStart)
+  const controlPort = port + 1
   const idleTimeout = workspaceConfig.sandbox?.idle_timeout ?? globalConfig.idleTimeout
 
   // Prepare the share directory with the pippin-server binary
   const shareDir = prepareShareDir(workspaceRoot)
 
   // Build the leash command
-  const args = buildLeashArgs(port, workspaceConfig, globalConfig.dotfiles)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles)
 
   // Resolve the user's shell environment before starting the spinner — the
   // login shell spawn must not happen while we hold the TTY in spinner mode.
@@ -131,6 +132,7 @@ async function startSandbox(
   const state: SandboxState = {
     workspaceRoot,
     port,
+    controlPort,
     leashPid: leashProcess.pid!,
     startedAt: new Date().toISOString(),
   }
@@ -199,11 +201,13 @@ export async function stopAllSandboxes(): Promise<void> {
 /** Build the leash CLI arguments */
 function buildLeashArgs(
   port: number,
+  controlPort: number,
   workspaceConfig: WorkspaceConfig,
   dotfiles: { path: string; readonly?: boolean }[],
 ): string[] {
   const args: string[] = [
     '-p', `${port}:${port}`,
+    '-l', `:${controlPort}`,
     '-I',
   ]
 

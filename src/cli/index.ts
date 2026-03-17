@@ -1,5 +1,6 @@
 import { execCommand } from './commands/exec'
 import { initCommand } from './commands/init'
+import { monitorCommand } from './commands/monitor'
 import { statusCommand } from './commands/status'
 import { stopCommand } from './commands/stop'
 import { checkForUpdate } from './update-check'
@@ -50,6 +51,11 @@ switch (firstArg) {
     break
   }
 
+  case 'monitor': {
+    await monitorCommand()
+    break
+  }
+
   case '--help':
   case '-h': {
     printUsage()
@@ -81,6 +87,7 @@ function printUsage(): void {
        pippin init                create .pippin.toml in the current directory
        pippin status [--all]      show sandbox status
        pippin stop [--all]        stop sandbox(es)
+       pippin monitor             open the leash Control UI in your browser
        pippin --help              show this help
        pippin --version           show version
 `,

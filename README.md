@@ -60,6 +60,7 @@ pippin run bash
 | --------------------- | ------------------------------------------------ |
 | `pippin run <cmd>`    | Run a command inside the sandbox                 |
 | `pippin init`         | Create a `.pippin.toml` in the current directory |
+| `pippin monitor`      | Open the leash Control UI in your browser        |
 | `pippin status`       | Show the status of the current workspace sandbox |
 | `pippin status --all` | Show all running sandboxes                       |
 | `pippin stop`         | Stop the current workspace sandbox               |

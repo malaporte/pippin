@@ -111,6 +111,8 @@ export interface GlobalConfig {
 export interface SandboxState {
   workspaceRoot: string
   port: number
+  /** Port the leash Control UI is bound to. Present for sandboxes started after monitor support was added. */
+  controlPort?: number
   leashPid: number
   startedAt: string
 }
