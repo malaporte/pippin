@@ -119,6 +119,10 @@ function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
     if (typeof sandbox.dockerfile === 'string' && sandbox.dockerfile.length > 0) {
       config.sandbox.dockerfile = sandbox.dockerfile
     }
+
+    if (typeof sandbox.policy === 'string' && sandbox.policy.length > 0) {
+      config.sandbox.policy = sandbox.policy
+    }
   }
 
   return config

@@ -94,6 +94,8 @@ export interface WorkspaceConfig {
     image?: string
     /** Path to a Dockerfile to build and use for the sandbox container */
     dockerfile?: string
+    /** Path to a Cedar policy file for sandbox enforcement (relative to workspace root) */
+    policy?: string
   }
 }
 
@@ -113,6 +115,8 @@ export interface GlobalConfig {
   image?: string
   /** Path to a Dockerfile to build and use for the sandbox container */
   dockerfile?: string
+  /** Path to a Cedar policy file for sandbox enforcement (global default) */
+  policy?: string
 }
 
 // --- Sandbox State ---
@@ -126,4 +130,6 @@ export interface SandboxState {
   startedAt: string
   /** The Docker image used for this sandbox (if a custom image was configured) */
   image?: string
+  /** The Cedar policy file used for this sandbox (if a policy was configured) */
+  policy?: string
 }

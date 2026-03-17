@@ -18,6 +18,7 @@ import {
   isServerHealthy,
 } from './state'
 import { Spinner } from './spinner'
+import { resolvePolicy } from './policy'
 import type { WorkspaceConfig, MountEntry, SandboxState } from '../shared/types'
 
 const LEASH_CODER_IMAGE = 'public.ecr.aws/s5i7k8t3/strongdm/coder'
@@ -67,6 +68,9 @@ async function startSandbox(
   // Resolve the custom Docker image (if configured)
   const resolvedImage = resolveImage(workspaceRoot, workspaceConfig, globalConfig)
 
+  // Resolve the Cedar policy file (if configured)
+  const resolvedPolicy = resolvePolicy(workspaceRoot, workspaceConfig, globalConfig)
+
   // Prepare the share directory with the pippin-server binary
   const shareDir = prepareShareDir(workspaceRoot)
 
@@ -75,7 +79,7 @@ async function startSandbox(
   const shellEnv = getShellEnv()
 
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles, globalConfig.environment, shellEnv, resolvedImage)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles, globalConfig.environment, shellEnv, resolvedImage, resolvedPolicy)
 
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
@@ -141,6 +145,7 @@ async function startSandbox(
     leashPid: leashProcess.pid!,
     startedAt: new Date().toISOString(),
     image: resolvedImage,
+    policy: resolvedPolicy,
   }
   writeState(state)
 
@@ -308,6 +313,7 @@ function buildLeashArgs(
   environment: string[],
   shellEnv: Record<string, string>,
   image?: string,
+  policy?: string,
 ): string[] {
   const args: string[] = [
     '-p', `${port}:${port}`,
@@ -318,6 +324,11 @@ function buildLeashArgs(
   // Use a custom image if configured
   if (image) {
     args.push('--image', image)
+  }
+
+  // Use a Cedar policy file if configured
+  if (policy) {
+    args.push('--policy', policy)
   }
 
   // Add dotfile mounts from global config

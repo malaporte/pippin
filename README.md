@@ -48,7 +48,7 @@ cd my-project
 pippin init
 ```
 
-This creates a `.pippin.toml` file. Then run any command:
+This creates a `.pippin.toml` file and an example `sandbox.cedar` policy. Then run any command:
 
 ```sh
 pippin run bash
@@ -56,15 +56,19 @@ pippin run bash
 
 ## Commands
 
-| Command               | Description                                      |
-| --------------------- | ------------------------------------------------ |
-| `pippin run <cmd>`    | Run a command inside the sandbox                 |
-| `pippin init`         | Create a `.pippin.toml` in the current directory |
-| `pippin monitor`      | Open the leash Control UI in your browser        |
-| `pippin status`       | Show the status of the current workspace sandbox |
-| `pippin status --all` | Show all running sandboxes                       |
-| `pippin stop`         | Stop the current workspace sandbox               |
-| `pippin stop --all`   | Stop all running sandboxes                       |
+| Command                    | Description                                      |
+| -------------------------- | ------------------------------------------------ |
+| `pippin run <cmd>`         | Run a command inside the sandbox                 |
+| `pippin init`              | Create a `.pippin.toml` in the current directory |
+| `pippin monitor`           | Open the leash Control UI in your browser        |
+| `pippin policy`            | Show the active Cedar policy for this workspace  |
+| `pippin policy --validate` | Basic structural validation of the policy file   |
+| `pippin status`            | Show the status of the current workspace sandbox |
+| `pippin status --all`      | Show all running sandboxes                       |
+| `pippin stop`              | Stop the current workspace sandbox               |
+| `pippin stop --all`        | Stop all running sandboxes                       |
+| `pippin restart`           | Restart the sandbox (applies config changes)     |
+| `pippin update [--force]`  | Update pippin to the latest version              |
 
 ## Configuration
 
@@ -74,6 +78,9 @@ pippin run bash
 [sandbox]
 # Override the global idle timeout (seconds)
 idle_timeout = 900
+
+# Cedar policy file for sandbox enforcement (restricts commands, file access, network)
+# policy = "sandbox.cedar"
 
 # Use a custom Docker image for the sandbox
 image = "my-registry/my-image:latest"
@@ -94,7 +101,8 @@ readonly = true
   "idleTimeout": 900,
   "portRangeStart": 9111,
   "dotfiles": ["/Users/you/.zshrc", "/Users/you/.gitconfig"],
-  "image": "my-registry/my-image:latest"
+  "image": "my-registry/my-image:latest",
+  "policy": "/path/to/global-policy.cedar"
 }
 ```
 
@@ -133,6 +141,38 @@ dockerfile = "./Dockerfile.pippin"
 When a Dockerfile is used, Pippin builds the image locally and tags it by content hash (`pippin-custom:<sha256>`). The build is skipped on subsequent runs unless the Dockerfile changes.
 
 **Priority**: workspace `image` > workspace `dockerfile` > global `image` > global `dockerfile`. If nothing is configured, leash uses its default image.
+
+### Cedar security policies
+
+Pippin supports [Cedar](https://docs.cedarpolicy.com) policy files to restrict what sandboxes can do. Policies control command execution, file access, and network connections, enforced at the kernel level by leash via eBPF.
+
+**Quick start:**
+
+```sh
+pippin init          # creates .pippin.toml and an example sandbox.cedar
+# edit sandbox.cedar to your needs, then uncomment sandbox.policy in .pippin.toml
+pippin policy        # show the active policy
+pippin policy --validate  # basic structural check
+```
+
+**Example policy** — allow all execution and file access, but restrict network to specific hosts:
+
+```cedar
+permit (principal, action == Action::"ProcessExec", resource)
+when { resource in [Dir::"/"] };
+
+permit (principal, action in [Action::"FileOpen", Action::"FileOpenReadOnly", Action::"FileOpenReadWrite"], resource)
+when { resource in [Dir::"/"] };
+
+permit (principal, action == Action::"NetworkConnect", resource)
+when { resource in [Host::"github.com", Host::"*.npmjs.org", Host::"registry.npmjs.org"] };
+```
+
+**Available actions:** `ProcessExec`, `FileOpen`, `FileOpenReadOnly`, `FileOpenReadWrite`, `NetworkConnect`
+
+**Resource types:** `File::"/path"` (exact file), `Dir::"/path/"` (directory tree), `Host::"hostname"` (supports wildcards like `*.example.com`)
+
+**Priority:** workspace `policy` > global `policy`. If no policy is configured, the sandbox runs with no restrictions.
 
 ## Architecture
 

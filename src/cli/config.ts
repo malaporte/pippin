@@ -8,7 +8,7 @@ const CONFIG_DIR = path.join(os.homedir(), '.config', 'pippin')
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
 
 /** Resolved global config: fields with defaults are always present, optional overrides may be undefined */
-export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'idleTimeout' | 'portRangeStart' | 'dotfiles' | 'environment'>> & Pick<GlobalConfig, 'image' | 'dockerfile'>
+export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'idleTimeout' | 'portRangeStart' | 'dotfiles' | 'environment'>> & Pick<GlobalConfig, 'image' | 'dockerfile' | 'policy'>
 
 /** Read the global pippin config, returning defaults for missing values */
 export function readGlobalConfig(): ResolvedGlobalConfig {
@@ -19,6 +19,7 @@ export function readGlobalConfig(): ResolvedGlobalConfig {
     environment: [],
     image: undefined,
     dockerfile: undefined,
+    policy: undefined,
   }
 
   try {
@@ -43,6 +44,9 @@ export function readGlobalConfig(): ResolvedGlobalConfig {
       dockerfile: typeof parsed.dockerfile === 'string' && parsed.dockerfile.length > 0
         ? parsed.dockerfile
         : defaults.dockerfile,
+      policy: typeof parsed.policy === 'string' && parsed.policy.length > 0
+        ? parsed.policy
+        : defaults.policy,
     }
   } catch {
     return defaults

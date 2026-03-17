@@ -1,6 +1,7 @@
 import { execCommand } from './commands/exec'
 import { initCommand } from './commands/init'
 import { monitorCommand } from './commands/monitor'
+import { policyCommand } from './commands/policy'
 import { statusCommand } from './commands/status'
 import { restartCommand } from './commands/restart'
 import { stopCommand } from './commands/stop'
@@ -64,6 +65,12 @@ switch (firstArg) {
     break
   }
 
+  case 'policy': {
+    const validate = args.includes('--validate')
+    policyCommand(validate)
+    break
+  }
+
   case 'update': {
     const force = args.includes('--force')
     await updateCommand(force)
@@ -103,6 +110,7 @@ function printUsage(): void {
        pippin stop [--all]        stop sandbox(es)
        pippin restart             restart the sandbox (applies config changes)
        pippin monitor             open the leash Control UI in your browser
+       pippin policy [--validate] show or validate the active Cedar policy
        pippin update [--force]    update pippin to the latest version
        pippin --help              show this help
        pippin --version           show version
