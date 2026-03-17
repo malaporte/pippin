@@ -13,7 +13,7 @@
     "pippin": "bun run src/cli/index.ts",
     "shell": "PATH=$(pwd)/scripts:$PATH $SHELL",
     "typecheck": "bunx tsc --noEmit",
-    "test": "vitest run"
+    "test": "bunx --bun vitest run"
   },
   "dependencies": {
     "smol-toml": "^1.3.1"
