@@ -48,6 +48,7 @@ export function createSession(
     cwd: cwd || process.cwd(),
     env: mergedEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true,
   })
 
   const session: Session = { id: sessionId, process: child, ws }
@@ -100,7 +101,15 @@ export function handleMessage(sessionId: string, msg: ClientMessage): void {
         SIGTERM: 'SIGTERM',
         SIGKILL: 'SIGKILL',
       }
-      session.process.kill(signalMap[msg.signal])
+      const sig = signalMap[msg.signal]
+      if (sig && session.process.pid) {
+        try {
+          // Negative PID kills the entire process group (sh + its children)
+          process.kill(-session.process.pid, sig)
+        } catch {
+          session.process.kill(sig)
+        }
+      }
       break
     }
     case 'resize': {
@@ -116,7 +125,11 @@ export function destroySession(sessionId: string): void {
   if (!session) return
 
   try {
-    session.process.kill('SIGTERM')
+    if (session.process.pid) {
+      process.kill(-session.process.pid, 'SIGTERM')
+    } else {
+      session.process.kill('SIGTERM')
+    }
   } catch {
     // Process may have already exited
   }

@@ -182,7 +182,7 @@ describe('handleMessage', () => {
 
     await waitFor(() => ws.sent.some((m) => m.includes('"exit"')), 10_000)
     expect(ws.sent.some((m) => m.includes('"exit"'))).toBe(true)
-  })
+  }, 15_000)
 })
 
 describe('destroySession', () => {
