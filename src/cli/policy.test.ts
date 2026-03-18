@@ -12,6 +12,7 @@ function makeGlobalConfig(overrides: Partial<ResolvedGlobalConfig> = {}): Resolv
     portRangeStart: 9111,
     dotfiles: [],
     environment: [],
+    hostCommands: [],
     shell: 'bash',
     image: undefined,
     dockerfile: undefined,
