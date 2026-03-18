@@ -23,37 +23,50 @@ export function readGlobalConfig(): ResolvedGlobalConfig {
     policy: undefined,
   }
 
+  let text: string
   try {
-    const text = fs.readFileSync(CONFIG_PATH, 'utf-8')
-    const parsed = JSON.parse(text) as GlobalConfig
-    return {
-      idleTimeout: typeof parsed.idleTimeout === 'number' && parsed.idleTimeout > 0
-        ? parsed.idleTimeout
-        : defaults.idleTimeout,
-      portRangeStart: typeof parsed.portRangeStart === 'number' && parsed.portRangeStart > 0
-        ? parsed.portRangeStart
-        : defaults.portRangeStart,
-      dotfiles: Array.isArray(parsed.dotfiles)
-        ? parsed.dotfiles.filter(isValidDotfileEntry)
-        : defaults.dotfiles,
-      environment: Array.isArray(parsed.environment)
-        ? parsed.environment.filter(isValidEnvName)
-        : defaults.environment,
-      shell: typeof parsed.shell === 'string' && parsed.shell.length > 0
-        ? parsed.shell
-        : defaults.shell,
-      image: typeof parsed.image === 'string' && parsed.image.length > 0
-        ? parsed.image
-        : defaults.image,
-      dockerfile: typeof parsed.dockerfile === 'string' && parsed.dockerfile.length > 0
-        ? parsed.dockerfile
-        : defaults.dockerfile,
-      policy: typeof parsed.policy === 'string' && parsed.policy.length > 0
-        ? parsed.policy
-        : defaults.policy,
-    }
+    text = fs.readFileSync(CONFIG_PATH, 'utf-8')
   } catch {
+    // Config file doesn't exist — use defaults silently
     return defaults
+  }
+
+  let parsed: GlobalConfig
+  try {
+    parsed = JSON.parse(text) as GlobalConfig
+  } catch (err) {
+    // Config file exists but contains invalid JSON — warn the user
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`pippin: warning: failed to parse ${CONFIG_PATH}: ${message}\n`)
+    process.stderr.write(`pippin: using default configuration\n`)
+    return defaults
+  }
+
+  return {
+    idleTimeout: typeof parsed.idleTimeout === 'number' && parsed.idleTimeout > 0
+      ? parsed.idleTimeout
+      : defaults.idleTimeout,
+    portRangeStart: typeof parsed.portRangeStart === 'number' && parsed.portRangeStart > 0
+      ? parsed.portRangeStart
+      : defaults.portRangeStart,
+    dotfiles: Array.isArray(parsed.dotfiles)
+      ? parsed.dotfiles.filter(isValidDotfileEntry)
+      : defaults.dotfiles,
+    environment: Array.isArray(parsed.environment)
+      ? parsed.environment.filter(isValidEnvName)
+      : defaults.environment,
+    shell: typeof parsed.shell === 'string' && parsed.shell.length > 0
+      ? parsed.shell
+      : defaults.shell,
+    image: typeof parsed.image === 'string' && parsed.image.length > 0
+      ? parsed.image
+      : defaults.image,
+    dockerfile: typeof parsed.dockerfile === 'string' && parsed.dockerfile.length > 0
+      ? parsed.dockerfile
+      : defaults.dockerfile,
+    policy: typeof parsed.policy === 'string' && parsed.policy.length > 0
+      ? parsed.policy
+      : defaults.policy,
   }
 }
 
