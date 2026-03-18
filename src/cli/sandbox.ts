@@ -109,6 +109,7 @@ async function startSandbox(
   const effectiveDotfiles = mergeAndDedup(globalConfig.dotfiles, toolReqs.dotfiles)
   const effectiveEnvironment = [...new Set([...globalConfig.environment, ...toolReqs.environment])]
   const effectiveSshAgent = explicitSshAgent || toolReqs.sshAgent
+  const effectiveGpgAgent = toolReqs.gpgAgent
 
   // Prepare the share directory with the pippin-server binary
   const shareDir = prepareShareDir(workspaceRoot)
@@ -197,7 +198,7 @@ async function startSandbox(
   }
 
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, dotfileOverrides, resolvedImage, resolvedPolicy)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, resolvedImage, resolvedPolicy)
 
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
@@ -509,6 +510,10 @@ function computeConfigHash(
   const tools = [...new Set([...globalConfig.tools, ...(workspaceConfig.sandbox?.tools ?? [])])]
   parts.push(...tools.sort().map((t) => `tool:${t}`))
 
+  // GPG agent forwarding (derived from tool recipes)
+  const toolReqs = resolveToolRequirements(tools)
+  parts.push(`gpgAgent:${toolReqs.gpgAgent}`)
+
   return crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)
 }
 
@@ -542,6 +547,7 @@ function buildLeashArgs(
   environment: string[],
   shellEnv: Record<string, string>,
   sshAgent: boolean,
+  gpgAgent: boolean,
   dotfileOverrides: Map<string, string>,
   image?: string,
   policy?: string,
@@ -634,6 +640,24 @@ function buildLeashArgs(
         : knownHosts
       args.push('-v', `${knownHosts}:${containerKnownHosts}:ro`)
     }
+  }
+
+  // GPG agent forwarding — mount the host's gpg-agent socket so that
+  // GPG commit signing works inside the container without needing a
+  // pinentry program or direct access to private key files.
+  if (gpgAgent) {
+    try {
+      const result = spawnSync('gpgconf', ['--list-dirs', 'agent-socket'], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      const hostSocket = result.stdout?.trim()
+      if (result.status === 0 && hostSocket && fs.existsSync(hostSocket)) {
+        const containerSocket = containerHome + '/.gnupg/S.gpg-agent'
+        args.push('-v', `${hostSocket}:${containerSocket}`)
+      }
+    } catch { /* gpgconf not available — skip silently */ }
   }
 
   // The command to run inside the container.

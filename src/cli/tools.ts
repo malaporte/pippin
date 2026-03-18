@@ -48,6 +48,8 @@ export interface ToolRecipe {
   envMultiResolver?: string
   /** Whether this tool needs SSH agent forwarding */
   sshAgent?: boolean
+  /** Whether this tool needs GPG agent forwarding (for commit signing) */
+  gpgAgent?: boolean
   /**
    * A host-side prepare function that runs at sandbox start time.
    * Used for tools that need complex credential extraction (e.g. reading
@@ -301,9 +303,12 @@ export const RECIPES: Record<string, ToolRecipe> = {
     dotfiles: [
       { path: '~/.gitconfig', readonly: true },
       { path: '~/.gitignore_global', readonly: true },
-      { path: '~/.gnupg', readonly: true },
+      { path: '~/.gnupg/pubring.gpg', readonly: true },
+      { path: '~/.gnupg/pubring.kbx', readonly: true },
+      { path: '~/.gnupg/trustdb.gpg', readonly: true },
     ],
     sshAgent: true,
+    gpgAgent: true,
   },
   gh: {
     name: 'GitHub CLI',
@@ -378,6 +383,8 @@ export interface ToolRequirements {
   envMultiResolvers: string[]
   /** Whether any tool needs SSH agent forwarding */
   sshAgent: boolean
+  /** Whether any tool needs GPG agent forwarding */
+  gpgAgent: boolean
   /** Tool names that were requested but have no built-in recipe */
   warnings: string[]
   /** Host-side prepare functions to run at sandbox start */
@@ -398,6 +405,7 @@ export function resolveToolRequirements(tools: string[]): ToolRequirements {
   const envResolvers: Record<string, string> = {}
   const envMultiResolverSet = new Set<string>()
   let sshAgent = false
+  let gpgAgent = false
   const warnings: string[] = []
   const hostPrepares: ToolRequirements['hostPrepares'] = []
 
@@ -452,6 +460,11 @@ export function resolveToolRequirements(tools: string[]): ToolRequirements {
       sshAgent = true
     }
 
+    // OR the gpgAgent flag
+    if (recipe.gpgAgent) {
+      gpgAgent = true
+    }
+
     // Collect host-side prepare functions
     if (recipe.hostPrepare) {
       hostPrepares.push(recipe.hostPrepare)
@@ -464,6 +477,7 @@ export function resolveToolRequirements(tools: string[]): ToolRequirements {
     envResolvers,
     envMultiResolvers: Array.from(envMultiResolverSet),
     sshAgent,
+    gpgAgent,
     warnings,
     hostPrepares,
   }

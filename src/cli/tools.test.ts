@@ -27,19 +27,25 @@ describe('resolveToolRequirements', () => {
     expect(result.envResolvers).toEqual({})
     expect(result.envMultiResolvers).toEqual([])
     expect(result.sshAgent).toBe(false)
+    expect(result.gpgAgent).toBe(false)
     expect(result.warnings).toEqual([])
   })
 
   it('resolves a single tool', () => {
     const result = resolveToolRequirements(['git'])
-    expect(result.dotfiles).toHaveLength(3)
+    expect(result.dotfiles).toHaveLength(5)
     expect(result.dotfiles[0].path).toBe('~/.gitconfig')
     expect(result.dotfiles[0].readonly).toBe(true)
     expect(result.dotfiles[1].path).toBe('~/.gitignore_global')
     expect(result.dotfiles[1].readonly).toBe(true)
-    expect(result.dotfiles[2].path).toBe('~/.gnupg')
+    expect(result.dotfiles[2].path).toBe('~/.gnupg/pubring.gpg')
     expect(result.dotfiles[2].readonly).toBe(true)
+    expect(result.dotfiles[3].path).toBe('~/.gnupg/pubring.kbx')
+    expect(result.dotfiles[3].readonly).toBe(true)
+    expect(result.dotfiles[4].path).toBe('~/.gnupg/trustdb.gpg')
+    expect(result.dotfiles[4].readonly).toBe(true)
     expect(result.sshAgent).toBe(true)
+    expect(result.gpgAgent).toBe(true)
     expect(result.environment).toEqual([])
     expect(result.warnings).toEqual([])
   })
@@ -56,12 +62,15 @@ describe('resolveToolRequirements', () => {
 
   it('merges multiple tools', () => {
     const result = resolveToolRequirements(['git', 'gh', 'aws'])
-    // git: ~/.gitconfig + ~/.gitignore_global + ~/.gnupg, gh: ~/.config/gh/config.yml, aws: ~/.aws/config
-    expect(result.dotfiles).toHaveLength(5)
+    // git: ~/.gitconfig + ~/.gitignore_global + pubring.gpg + pubring.kbx + trustdb.gpg
+    // gh: ~/.config/gh/config.yml, aws: ~/.aws/config
+    expect(result.dotfiles).toHaveLength(7)
     const paths = result.dotfiles.map((d) => d.path)
     expect(paths).toContain('~/.gitconfig')
     expect(paths).toContain('~/.gitignore_global')
-    expect(paths).toContain('~/.gnupg')
+    expect(paths).toContain('~/.gnupg/pubring.gpg')
+    expect(paths).toContain('~/.gnupg/pubring.kbx')
+    expect(paths).toContain('~/.gnupg/trustdb.gpg')
     expect(paths).toContain('~/.config/gh/config.yml')
     expect(paths).toContain('~/.aws/config')
     // Environment: gh + aws env vars
@@ -85,17 +94,30 @@ describe('resolveToolRequirements', () => {
     expect(result.sshAgent).toBe(false)
   })
 
+  it('ORs gpgAgent across tools', () => {
+    // gh doesn't need gpgAgent, but git does
+    const result = resolveToolRequirements(['gh', 'git'])
+    expect(result.gpgAgent).toBe(true)
+  })
+
+  it('does not enable gpgAgent when no tool needs it', () => {
+    const result = resolveToolRequirements(['gh', 'aws', 'ssh'])
+    expect(result.gpgAgent).toBe(false)
+  })
+
   it('deduplicates tool names', () => {
     const result = resolveToolRequirements(['git', 'git', 'git'])
-    expect(result.dotfiles).toHaveLength(3)
+    expect(result.dotfiles).toHaveLength(5)
     expect(result.dotfiles[0].path).toBe('~/.gitconfig')
     expect(result.dotfiles[1].path).toBe('~/.gitignore_global')
-    expect(result.dotfiles[2].path).toBe('~/.gnupg')
+    expect(result.dotfiles[2].path).toBe('~/.gnupg/pubring.gpg')
+    expect(result.dotfiles[3].path).toBe('~/.gnupg/pubring.kbx')
+    expect(result.dotfiles[4].path).toBe('~/.gnupg/trustdb.gpg')
   })
 
   it('handles case-insensitive tool names', () => {
     const result = resolveToolRequirements(['Git', 'GH'])
-    expect(result.dotfiles).toHaveLength(4)
+    expect(result.dotfiles).toHaveLength(6)
     expect(result.warnings).toEqual([])
   })
 
@@ -103,7 +125,7 @@ describe('resolveToolRequirements', () => {
     const result = resolveToolRequirements(['git', 'terraform', 'kubectl'])
     expect(result.warnings).toEqual(['terraform', 'kubectl'])
     // git still resolves normally
-    expect(result.dotfiles).toHaveLength(3)
+    expect(result.dotfiles).toHaveLength(5)
     expect(result.dotfiles[0].path).toBe('~/.gitconfig')
   })
 
