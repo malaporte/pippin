@@ -14,6 +14,18 @@ pippin run python main.py
 
 Pippin automatically launches a Docker container for your project the first time you run a command, streams I/O back to your terminal in real-time, and shuts the container down after it sits idle. Full PTY support means interactive apps like `vim`, `htop`, and `bash` work exactly as they do on the host. No Dockerfile needed. No manual `docker run`. It just works.
 
+## Why
+
+AI coding agents — Claude Code, Codex, OpenCode — can run arbitrary shell commands on your machine with your full user permissions. That means package installs with postinstall scripts, builds that execute arbitrary code, file modifications outside the project directory, and network requests to unknown endpoints — all without any isolation. These agents are also vulnerable to prompt injection: malicious instructions hidden in code comments, README files, or web content can trick an agent into running commands it shouldn't. Pippin gives you two ways to contain the blast radius:
+
+1. **Run the agent itself inside a sandbox.** Start the agent with `pippin run` and everything it does — file edits, shell commands, package installs — stays inside the container.
+
+2. **Route agent commands through the sandbox.** For a better user experience, keep the agent on the host but configure it to prefix shell commands with `pippin run`. The agent can still read your code, but execution happens in an isolated container. This currently requires a patched agent — see [nopecode](https://github.com/malaporte/nopecode), a prototype fork of OpenCode with Pippin integration. Codex is also open-source and patchable in the same way.
+
+Either way, you get [Cedar](https://docs.cedarpolicy.com) policy enforcement, filesystem isolation, and network controls — without changing how the agent works.
+
+Pippin is also useful as a general-purpose sandboxing tool — run any project's commands in an isolated container without worrying about what they do to your host machine.
+
 ## How it works
 
 1. `pippin run <command>` finds your workspace root (the nearest `.pippin.toml`, or the current directory if none exists).
