@@ -126,6 +126,9 @@ image = "my-registry/my-image:latest"
 # Or build a local Dockerfile instead (relative to workspace root)
 # dockerfile = "./Dockerfile.pippin"
 
+# Tools to auto-configure in the sandbox (credentials, env vars, SSH agent)
+# tools = ["git", "gh", "aws"]
+
 # Commands that run on the host instead of in the sandbox
 # host_commands = ["git", "ssh"]
 
@@ -193,6 +196,40 @@ When a Dockerfile is used, Pippin builds the image locally and tags it by conten
 
 **Priority**: workspace `image` > workspace `dockerfile` > global `image` > global `dockerfile`. If nothing is configured, leash uses its default image.
 
+### Tools
+
+Instead of manually configuring dotfile mounts, environment variables, and SSH agent forwarding for each tool you use, you can declare the tools you need and Pippin handles the rest. Each built-in tool "recipe" knows what credentials to mount, what env vars to forward, and whether SSH agent access is required.
+
+```json
+// ~/.config/pippin/config.json
+{ "tools": ["git", "gh", "aws", "npm", "ssh"] }
+```
+
+```toml
+# .pippin.toml
+[sandbox]
+tools = ["git", "gh"]
+```
+
+Tools from both configs are merged (union). The following tools have built-in recipes:
+
+| Tool | What it does |
+|------|-------------|
+| `git` | Mounts `~/.gitconfig`, `~/.gitignore_global`, `~/.gnupg` (readonly). Enables SSH agent. |
+| `gh` | Mounts `~/.config/gh/config.yml` (readonly). Resolves `GH_TOKEN` dynamically via `gh auth token` — works with keychain-based auth. |
+| `aws` | Mounts `~/.aws/config` (readonly). Resolves temporary SSO credentials via `aws configure export-credentials` at sandbox start. |
+| `snowflake` | Mounts `~/.snowflake/config.toml` (readonly). Extracts cached ID token from macOS keychain for `externalbrowser` auth. |
+| `npm` | Mounts `~/.npmrc` (readonly). Forwards `NPM_TOKEN` and `NPM_CONFIG_REGISTRY`. |
+| `ssh` | Mounts `~/.ssh/config` and `~/.ssh/known_hosts` (readonly). Enables SSH agent. Sanitizes macOS-specific options (`UseKeychain`, `AddKeysToAgent`) for Linux compatibility. |
+
+All credential files are mounted **read-only** — the sandbox never modifies your host credentials.
+
+Tools that need dynamic credential resolution (gh, aws) run a host-side command when the sandbox starts and inject the result as environment variables. This means SSO sessions and keychain tokens work transparently — no need to export tokens into your shell environment.
+
+Unknown tool names produce a warning but don't prevent the sandbox from starting. Run `pippin doctor` to check that all configured tools have their credentials available.
+
+**Tools vs. host commands:** Tools run *inside* the container with auto-configured credentials. Host commands run *outside* the container on the host. Prefer tools when possible — they maintain sandbox isolation and Cedar policy enforcement.
+
 ### Host commands
 
 Some commands need access to host-level credentials that are difficult to configure inside a sandbox — SSH keys for `git`, authentication tokens, and so on. Instead of mounting secrets into the container, you can configure specific commands to run directly on the host.
@@ -220,7 +257,21 @@ Instead of using `hostCommands` to run `git` on the host, you can forward your S
 
 ```json
 // ~/.config/pippin/config.json
-{ "sshAgent": true }
+{
+  "idleTimeout": 900,
+  "portRangeStart": 9111,
+  "shell": "bash",
+  "tools": ["git", "gh", "aws", "npm", "ssh"],
+  "dotfiles": [
+    { "path": "/Users/you/.zshrc" },
+    { "path": "/Users/you/.gitconfig", "readonly": true }
+  ],
+  "environment": ["NPM_TOKEN", "AWS_PROFILE"],
+  "image": "my-registry/my-image:latest",
+  "policy": "/path/to/global-policy.cedar",
+  "hostCommands": ["git", "ssh"],
+  "sshAgent": true
+}
 ```
 
 ```toml
@@ -260,7 +311,7 @@ You can forward specific host environment variables into every sandbox. This is 
 
 Pippin resolves the values from your login shell environment when the sandbox starts. Only the variable names are stored in the config — the actual values are read at runtime. Changes to the `environment` list trigger an automatic sandbox restart.
 
-This is a global-config-only setting (not available in `.pippin.toml`).
+This is a global-config-only setting (not available in `.pippin.toml`). For most use cases, the `tools` feature handles environment forwarding automatically — use `environment` for custom variables that aren't covered by a built-in tool recipe.
 
 ### Cedar security policies
 
@@ -302,7 +353,7 @@ when { resource in [Host::"github.com", Host::"*.npmjs.org", Host::"registry.npm
 
 ### Automatic restart on config changes
 
-Pippin tracks a fingerprint of the active sandbox configuration — covering the Docker image, Cedar policy (including file contents), dotfile mounts, workspace mounts, forwarded environment variables, and SSH agent forwarding. When you change any of these settings and run your next command, Pippin detects the drift and automatically restarts the sandbox with the new configuration:
+Pippin tracks a fingerprint of the active sandbox configuration — covering the Docker image, Cedar policy (including file contents), dotfile mounts, workspace mounts, forwarded environment variables, tools, and SSH agent forwarding. When you change any of these settings and run your next command, Pippin detects the drift and automatically restarts the sandbox with the new configuration:
 
 ```
 $ pippin shell
