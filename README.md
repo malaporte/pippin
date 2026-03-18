@@ -98,6 +98,9 @@ image = "my-registry/my-image:latest"
 # Or build a local Dockerfile instead (relative to workspace root)
 # dockerfile = "./Dockerfile.pippin"
 
+# Commands that run on the host instead of in the sandbox
+# host_commands = ["git", "ssh"]
+
 # Extra paths to mount into the sandbox
 [[sandbox.mounts]]
 path = "/shared/libs"
@@ -113,7 +116,8 @@ readonly = true
   "shell": "bash",
   "dotfiles": ["/Users/you/.zshrc", "/Users/you/.gitconfig"],
   "image": "my-registry/my-image:latest",
-  "policy": "/path/to/global-policy.cedar"
+  "policy": "/path/to/global-policy.cedar",
+  "hostCommands": ["git", "ssh"]
 }
 ```
 
@@ -152,6 +156,27 @@ dockerfile = "./Dockerfile.pippin"
 When a Dockerfile is used, Pippin builds the image locally and tags it by content hash (`pippin-custom:<sha256>`). The build is skipped on subsequent runs unless the Dockerfile changes.
 
 **Priority**: workspace `image` > workspace `dockerfile` > global `image` > global `dockerfile`. If nothing is configured, leash uses its default image.
+
+### Host commands
+
+Some commands need access to host-level credentials that are difficult to configure inside a sandbox — SSH keys for `git`, authentication tokens, and so on. Instead of mounting secrets into the container, you can configure specific commands to run directly on the host.
+
+When `pippin run` encounters a command whose first word matches the `hostCommands` list, it spawns the process natively on the host instead of routing it through the sandbox.
+
+```json
+// ~/.config/pippin/config.json
+{ "hostCommands": ["git", "ssh"] }
+```
+
+```toml
+# .pippin.toml
+[sandbox]
+host_commands = ["git", "ssh"]
+```
+
+The merged set from both configs is used (union). Matching is by the first token of the command, so `"git"` matches `git pull`, `git push`, etc.
+
+**Note:** Host commands bypass sandbox isolation and Cedar policy enforcement entirely. Only add commands you trust to run outside the sandbox.
 
 ### Cedar security policies
 
