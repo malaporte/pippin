@@ -12,15 +12,16 @@ pippin run python main.py
 
 ## What it does
 
-Pippin automatically launches a Docker container for your project the first time you run a command, streams I/O back to your terminal in real-time, and shuts the container down after it sits idle. No Dockerfile needed. No manual `docker run`. It just works.
+Pippin automatically launches a Docker container for your project the first time you run a command, streams I/O back to your terminal in real-time, and shuts the container down after it sits idle. Full PTY support means interactive apps like `vim`, `htop`, and `bash` work exactly as they do on the host. No Dockerfile needed. No manual `docker run`. It just works.
 
 ## How it works
 
 1. `pippin run <command>` finds your workspace root (the nearest `.pippin.toml`, or the current directory if none exists).
 2. If no sandbox is running, Pippin starts a container with your workspace mounted.
 3. A lightweight server inside the container receives the command over WebSocket and executes it.
-4. stdout/stderr stream back to your terminal live. stdin, signals, and terminal resize events are all forwarded.
-5. The container exits automatically after an idle timeout (default: 15 minutes).
+4. stdout/stderr stream back to your terminal live. A full PTY is allocated, so stdin, signals, and terminal resize events are all forwarded — interactive TUI apps work seamlessly.
+5. You can also run `pippin shell` to drop into an interactive shell inside the sandbox.
+6. The container exits automatically after an idle timeout (default: 15 minutes) — the timer only starts when no commands are running.
 
 ## Installation
 
@@ -39,13 +40,21 @@ Requires [leash](https://github.com/strongdm/leash) (`public.ecr.aws/s5i7k8t3/st
 bun run deploy:cli
 ```
 
+## Updating
+
+```sh
+pippin update
+```
+
+This downloads and installs the latest release, replacing the current binary. To reinstall the current version (e.g. if the binary is corrupted), use `pippin update --force`.
+
 ## Getting started
 
 Run any command inside a sandbox — no setup required:
 
 ```sh
 cd my-project
-pippin run bash
+pippin run hostname   # prints the container's hostname, not the host's
 ```
 
 When no `.pippin.toml` is found, Pippin uses the current directory as the workspace root. Only that directory and its children are mounted into the sandbox.
@@ -56,7 +65,7 @@ To customize the sandbox (idle timeout, extra mounts, custom images, security po
 pippin init
 ```
 
-This creates a `.pippin.toml` file and an example `sandbox.cedar` policy.
+This creates a `.pippin.toml` file with commented-out examples of all available settings.
 
 ## Commands
 
@@ -223,9 +232,15 @@ Pippin supports [Cedar](https://docs.cedarpolicy.com) policy files to restrict w
 
 **Quick start:**
 
+Create a Cedar policy file in your workspace (or globally at `~/.config/pippin/`), then point your config at it:
+
+```toml
+# .pippin.toml
+[sandbox]
+policy = "sandbox.cedar"
+```
+
 ```sh
-pippin init          # creates .pippin.toml and an example sandbox.cedar
-# edit sandbox.cedar to your needs, then uncomment sandbox.policy in .pippin.toml
 pippin policy        # show the active policy
 pippin policy --validate  # basic structural check
 ```
