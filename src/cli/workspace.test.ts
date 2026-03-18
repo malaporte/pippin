@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { findWorkspace, validateCwd } from './workspace'
+import { findWorkspace, resolveWorkspace, validateCwd } from './workspace'
 
 describe('findWorkspace', () => {
   let tmpDir: string
@@ -133,6 +133,50 @@ image = ""
     const result = findWorkspace(tmpDir)
     expect(result).not.toBeNull()
     expect(result!.config.sandbox?.image).toBeUndefined()
+  })
+})
+
+describe('resolveWorkspace', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pippin-test-')))
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns the found workspace when .pippin.toml exists', () => {
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), '[sandbox]\nidle_timeout = 600\n')
+
+    const result = resolveWorkspace(tmpDir)
+    expect(result.root).toBe(tmpDir)
+    expect(result.config.sandbox?.idle_timeout).toBe(600)
+  })
+
+  it('returns implicit workspace rooted at cwd when no .pippin.toml exists', () => {
+    const nested = path.join(tmpDir, 'no-config')
+    fs.mkdirSync(nested, { recursive: true })
+
+    const result = resolveWorkspace(nested)
+    expect(result.root).toBe(nested)
+    expect(result.config).toEqual({})
+  })
+
+  it('prints a notice to stderr for implicit workspace', () => {
+    const nested = path.join(tmpDir, 'no-config')
+    fs.mkdirSync(nested, { recursive: true })
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      resolveWorkspace(nested)
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining('no .pippin.toml found'),
+      )
+    } finally {
+      stderrSpy.mockRestore()
+    }
   })
 })
 

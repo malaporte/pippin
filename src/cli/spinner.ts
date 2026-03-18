@@ -1,3 +1,5 @@
+import kleur from 'kleur'
+
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const INTERVAL_MS = 80
 
@@ -37,6 +39,6 @@ export class Spinner {
 
   private render(): void {
     const frame = FRAMES[this.frameIndex]
-    process.stderr.write(`\r\x1b[K${frame} ${this.message}`)
+    process.stderr.write(`\r\x1b[K${kleur.gray(`${frame} ${this.message}`)}`)
   }
 }

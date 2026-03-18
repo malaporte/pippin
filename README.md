@@ -16,7 +16,7 @@ Pippin automatically launches a Docker container for your project the first time
 
 ## How it works
 
-1. `pippin run <command>` finds your workspace root (a `.pippin.toml` file).
+1. `pippin run <command>` finds your workspace root (the nearest `.pippin.toml`, or the current directory if none exists).
 2. If no sandbox is running, Pippin starts a container with your workspace mounted.
 3. A lightweight server inside the container receives the command over WebSocket and executes it.
 4. stdout/stderr stream back to your terminal live. stdin, signals, and terminal resize events are all forwarded.
@@ -41,18 +41,22 @@ bun run deploy:cli
 
 ## Getting started
 
-Initialize a workspace config in your project root:
+Run any command inside a sandbox — no setup required:
 
 ```sh
 cd my-project
+pippin run bash
+```
+
+When no `.pippin.toml` is found, Pippin uses the current directory as the workspace root. Only that directory and its children are mounted into the sandbox.
+
+To customize the sandbox (idle timeout, extra mounts, custom images, security policies), create a config file:
+
+```sh
 pippin init
 ```
 
-This creates a `.pippin.toml` file and an example `sandbox.cedar` policy. Then run any command:
-
-```sh
-pippin run bash
-```
+This creates a `.pippin.toml` file and an example `sandbox.cedar` policy.
 
 ## Commands
 
@@ -72,7 +76,9 @@ pippin run bash
 
 ## Configuration
 
-### Workspace config (`.pippin.toml`)
+### Workspace config (`.pippin.toml`) — optional
+
+A `.pippin.toml` file marks the workspace root and lets you customize the sandbox. If no config file is found, Pippin defaults to using the current directory as the workspace root with default settings.
 
 ```toml
 [sandbox]

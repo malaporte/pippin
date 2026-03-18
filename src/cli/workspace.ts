@@ -1,6 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { parse as parseToml } from 'smol-toml'
+import kleur from 'kleur'
 import type { WorkspaceConfig, MountEntry } from '../shared/types'
 
 const WORKSPACE_CONFIG_FILE = '.pippin.toml'
@@ -42,16 +43,21 @@ export function findWorkspace(startDir: string): ResolvedWorkspace | null {
 
 /**
  * Resolve the workspace for the current working directory.
- * Exits with an error if no .pippin.toml is found.
+ * If no .pippin.toml is found, falls back to an implicit workspace rooted at
+ * the current directory with an empty config. This means the sandbox will only
+ * mount the current directory and its children.
  */
 export function resolveWorkspace(cwd: string): ResolvedWorkspace {
   const workspace = findWorkspace(cwd)
   if (!workspace) {
+    const resolvedCwd = path.resolve(cwd)
     process.stderr.write(
-      `pippin: no .pippin.toml found (searched from ${cwd} to /)\n` +
-      `Run 'pippin init' in your workspace root to get started.\n`,
+      kleur.yellow(`pippin: no .pippin.toml found, using ${resolvedCwd} as workspace root`) + '\n',
     )
-    process.exit(1)
+    return {
+      root: resolvedCwd,
+      config: {},
+    }
   }
   return workspace
 }
