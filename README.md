@@ -63,6 +63,7 @@ This creates a `.pippin.toml` file and an example `sandbox.cedar` policy.
 | Command                    | Description                                      |
 | -------------------------- | ------------------------------------------------ |
 | `pippin run <cmd>`         | Run a command inside the sandbox                 |
+| `pippin shell`             | Open an interactive shell in the sandbox         |
 | `pippin init`              | Create a `.pippin.toml` in the current directory |
 | `pippin monitor`           | Open the leash Control UI in your browser        |
 | `pippin policy`            | Show the active Cedar policy for this workspace  |
@@ -85,6 +86,9 @@ A `.pippin.toml` file marks the workspace root and lets you customize the sandbo
 # Override the global idle timeout (seconds)
 idle_timeout = 900
 
+# Shell to use for `pippin shell` (default: "bash")
+# shell = "zsh"
+
 # Cedar policy file for sandbox enforcement (restricts commands, file access, network)
 # policy = "sandbox.cedar"
 
@@ -106,6 +110,7 @@ readonly = true
 {
   "idleTimeout": 900,
   "portRangeStart": 9111,
+  "shell": "bash",
   "dotfiles": ["/Users/you/.zshrc", "/Users/you/.gitconfig"],
   "image": "my-registry/my-image:latest",
   "policy": "/path/to/global-policy.cedar"

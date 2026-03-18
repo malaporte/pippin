@@ -98,6 +98,8 @@ export interface WorkspaceConfig {
     dockerfile?: string
     /** Path to a Cedar policy file for sandbox enforcement (relative to workspace root) */
     policy?: string
+    /** Shell to use for `pippin shell` (e.g. "bash", "zsh", "sh") */
+    shell?: string
   }
 }
 
@@ -119,6 +121,8 @@ export interface GlobalConfig {
   dockerfile?: string
   /** Path to a Cedar policy file for sandbox enforcement (global default) */
   policy?: string
+  /** Shell to use for `pippin shell` (e.g. "bash", "zsh", "sh"). Defaults to "bash". */
+  shell?: string
 }
 
 // --- Sandbox State ---

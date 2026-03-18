@@ -2,6 +2,7 @@ import { execCommand } from './commands/exec'
 import { initCommand } from './commands/init'
 import { monitorCommand } from './commands/monitor'
 import { policyCommand } from './commands/policy'
+import { shellCommand } from './commands/shell'
 import { statusCommand } from './commands/status'
 import { restartCommand } from './commands/restart'
 import { stopCommand } from './commands/stop'
@@ -35,6 +36,11 @@ switch (firstArg) {
     }
 
     await execCommand(cmd)
+    break
+  }
+
+  case 'shell': {
+    await shellCommand()
     break
   }
 
@@ -105,6 +111,7 @@ if (updateNotice) {
 function printUsage(): void {
   process.stderr.write(
     `usage: pippin run <command>       run a command in the sandbox
+       pippin shell               open an interactive shell in the sandbox
        pippin init                create .pippin.toml in the current directory
        pippin status [--all]      show sandbox status
        pippin stop [--all]        stop sandbox(es)

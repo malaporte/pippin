@@ -129,6 +129,10 @@ function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
     if (typeof sandbox.policy === 'string' && sandbox.policy.length > 0) {
       config.sandbox.policy = sandbox.policy
     }
+
+    if (typeof sandbox.shell === 'string' && sandbox.shell.length > 0) {
+      config.sandbox.shell = sandbox.shell
+    }
   }
 
   return config
