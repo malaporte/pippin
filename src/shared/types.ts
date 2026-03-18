@@ -138,4 +138,6 @@ export interface SandboxState {
   image?: string
   /** The Cedar policy file used for this sandbox (if a policy was configured) */
   policy?: string
+  /** SHA-256 fingerprint of the resolved sandbox configuration (image, policy, mounts, env) for drift detection */
+  configHash?: string
 }

@@ -36,7 +36,27 @@ export async function ensureSandbox(
 ): Promise<number> {
   // Check if already running
   const existing = await validateState(workspaceRoot)
-  if (existing) return existing.port
+  if (existing) {
+    // Detect config drift: compare running sandbox's config fingerprint
+    // against what the current configuration would produce.
+    if (existing.configHash) {
+      const globalConfig = readGlobalConfig()
+      const currentHash = computeConfigHash(workspaceRoot, workspaceConfig, globalConfig)
+
+      if (existing.configHash === currentHash) {
+        return existing.port // Config unchanged — reuse existing sandbox
+      }
+
+      // Config has drifted — auto-restart
+      process.stderr.write('pippin: sandbox configuration changed, restarting…\n')
+      await stopSandbox(workspaceRoot)
+      // Fall through to start a new sandbox
+    } else {
+      // Legacy state without configHash — don't force-restart; the hash will
+      // be recorded on the next natural start.
+      return existing.port
+    }
+  }
 
   // Acquire lock to prevent concurrent starts
   if (!acquireLock(workspaceRoot)) {
@@ -138,6 +158,7 @@ async function startSandbox(
   }
 
   // Write state
+  const configHash = computeConfigHash(workspaceRoot, workspaceConfig, globalConfig)
   const state: SandboxState = {
     workspaceRoot,
     port,
@@ -146,6 +167,7 @@ async function startSandbox(
     startedAt: new Date().toISOString(),
     image: resolvedImage,
     policy: resolvedPolicy,
+    configHash,
   }
   writeState(state)
 
@@ -302,6 +324,64 @@ function buildDockerImage(dockerfilePath: string): string {
   }
 
   return tag
+}
+
+/**
+ * Compute a deterministic fingerprint of the sandbox-relevant configuration.
+ * Used to detect when the config has changed since the sandbox was started,
+ * so we can auto-restart instead of silently running with stale settings.
+ *
+ * Inputs hashed: resolved image tag, resolved policy path + file content,
+ * global dotfile mounts, workspace mounts, and forwarded env var names.
+ */
+function computeConfigHash(
+  workspaceRoot: string,
+  workspaceConfig: WorkspaceConfig,
+  globalConfig: ResolvedGlobalConfig,
+): string {
+  const image = resolveImage(workspaceRoot, workspaceConfig, globalConfig)
+  const policy = resolvePolicy(workspaceRoot, workspaceConfig, globalConfig)
+
+  const parts: string[] = [
+    `image:${image ?? ''}`,
+    `policy:${policy ?? ''}`,
+  ]
+
+  // Include policy file content so edits to the .cedar file are detected
+  if (policy) {
+    try {
+      const content = fs.readFileSync(policy)
+      parts.push(`policy-content:${crypto.createHash('sha256').update(content).digest('hex')}`)
+    } catch { /* file unreadable — hash will change if it becomes readable later */ }
+  }
+
+  // Global dotfile mounts (sorted for determinism)
+  const dotfileParts: string[] = []
+  for (const d of globalConfig.dotfiles) {
+    const expanded = expandHome(d.path)
+    if (fs.existsSync(expanded)) {
+      dotfileParts.push(`dotfile:${expanded}:${d.readonly ? 'ro' : 'rw'}`)
+    }
+  }
+  parts.push(...dotfileParts.sort())
+
+  // Workspace mounts (sorted for determinism)
+  const mountParts: string[] = []
+  for (const m of workspaceConfig.sandbox?.mounts ?? []) {
+    const expanded = expandHome(m.path)
+    if (fs.existsSync(expanded)) {
+      mountParts.push(`mount:${expanded}:${m.readonly ? 'ro' : 'rw'}`)
+    }
+  }
+  parts.push(...mountParts.sort())
+
+  // Forwarded environment variable names (sorted)
+  const envParts = [...globalConfig.environment].sort()
+  for (const e of envParts) {
+    parts.push(`env:${e}`)
+  }
+
+  return crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)
 }
 
 /** Build the leash CLI arguments */

@@ -72,7 +72,7 @@ This creates a `.pippin.toml` file and an example `sandbox.cedar` policy.
 | `pippin status --all`      | Show all running sandboxes                       |
 | `pippin stop`              | Stop the current workspace sandbox               |
 | `pippin stop --all`        | Stop all running sandboxes                       |
-| `pippin restart`           | Restart the sandbox (applies config changes)     |
+| `pippin restart`           | Restart the sandbox (config changes auto-restart) |
 | `pippin update [--force]`  | Update pippin to the latest version              |
 
 ## Configuration
@@ -184,6 +184,19 @@ when { resource in [Host::"github.com", Host::"*.npmjs.org", Host::"registry.npm
 **Resource types:** `File::"/path"` (exact file), `Dir::"/path/"` (directory tree), `Host::"hostname"` (supports wildcards like `*.example.com`)
 
 **Priority:** workspace `policy` > global `policy`. If no policy is configured, the sandbox runs with no restrictions.
+
+### Automatic restart on config changes
+
+Pippin tracks a fingerprint of the active sandbox configuration — covering the Docker image, Cedar policy (including file contents), dotfile mounts, workspace mounts, and forwarded environment variables. When you change any of these settings and run your next command, Pippin detects the drift and automatically restarts the sandbox with the new configuration:
+
+```
+$ pippin shell
+pippin: sandbox configuration changed, restarting…
+```
+
+This means you no longer need to manually run `pippin restart` after editing your config. The restart happens transparently before the command executes.
+
+Sandboxes started before this feature was added (without a stored fingerprint) are not force-restarted; they pick up the new behavior on their next natural restart.
 
 ## Architecture
 
