@@ -157,6 +157,14 @@ async function startSandbox(
     process.exit(1)
   }
 
+  // Detach from the child process so the CLI can exit while leash keeps
+  // running in the background.  We must destroy the piped stderr stream
+  // *and* unref the child — otherwise the open pipe / process handle keeps
+  // the Node event loop alive and the CLI hangs after printing its output.
+  leashProcess.stderr?.removeAllListeners()
+  leashProcess.stderr?.destroy()
+  leashProcess.unref()
+
   // Write state
   const configHash = computeConfigHash(workspaceRoot, workspaceConfig, globalConfig)
   const state: SandboxState = {
