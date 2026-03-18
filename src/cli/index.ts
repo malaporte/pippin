@@ -7,6 +7,7 @@ import { statusCommand } from './commands/status'
 import { restartCommand } from './commands/restart'
 import { stopCommand } from './commands/stop'
 import { updateCommand } from './commands/update'
+import { doctorCommand } from './commands/doctor'
 import { checkForUpdate } from './update-check'
 import { VERSION } from './version'
 
@@ -83,6 +84,11 @@ switch (firstArg) {
     break
   }
 
+  case 'doctor': {
+    doctorCommand()
+    break
+  }
+
   case '--help':
   case '-h': {
     printUsage()
@@ -119,6 +125,7 @@ function printUsage(): void {
        pippin monitor             open the leash Control UI in your browser
        pippin policy [--validate] show or validate the active Cedar policy
        pippin update [--force]    update pippin to the latest version
+       pippin doctor             check prerequisites and validate configuration
        pippin --help              show this help
        pippin --version           show version
 `,

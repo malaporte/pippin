@@ -542,7 +542,7 @@ function prepareShareDir(workspaceRoot: string): string {
 }
 
 /** Find the pippin-server binary for the current container architecture */
-function resolveServerBinary(): string | null {
+export function resolveServerBinary(): string | null {
   // Allow explicit override via environment variable
   const envPath = process.env.PIPPIN_SERVER_BINARY
   if (envPath) {
