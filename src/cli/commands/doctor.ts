@@ -7,6 +7,7 @@ import { readGlobalConfig, expandHome } from '../config'
 import { findWorkspace } from '../workspace'
 import { resolveServerBinary } from '../sandbox'
 import { resolvePolicy } from '../policy'
+import { RECIPES, KNOWN_TOOLS, resolveToolRequirements } from '../tools'
 
 interface CheckResult {
   ok: boolean
@@ -211,6 +212,86 @@ function checkWorkspace(): CheckResult[] {
   return results
 }
 
+function checkTools(): CheckResult[] {
+  const results: CheckResult[] = []
+  const globalConfig = readGlobalConfig()
+  const cwd = process.cwd()
+  const workspace = findWorkspace(cwd)
+  const workspaceTools = workspace?.config.sandbox?.tools ?? []
+
+  // Merge tools from both configs
+  const tools = [...new Set([...globalConfig.tools, ...workspaceTools])]
+  if (tools.length === 0) return results
+
+  // Validate each tool name and check its credentials
+  for (const tool of tools) {
+    const name = tool.toLowerCase()
+    const recipe = RECIPES[name]
+
+    if (!recipe) {
+      results.push(fail('Tool', `"${tool}" — unknown tool (available: ${KNOWN_TOOLS.join(', ')})`))
+      continue
+    }
+
+    // Check that credential files / directories exist on the host
+    const details: string[] = []
+    let hasCredentials = true
+
+    if (recipe.dotfiles) {
+      for (const df of recipe.dotfiles) {
+        const expanded = expandHome(df.path)
+        if (fs.existsSync(expanded)) {
+          details.push(df.path)
+        } else {
+          hasCredentials = false
+        }
+      }
+    }
+
+    // Check if any env vars are available
+    const shellEnv = process.env
+    const availableEnvVars: string[] = []
+    if (recipe.environment) {
+      for (const env of recipe.environment) {
+        if (shellEnv[env]) {
+          availableEnvVars.push(env)
+        }
+      }
+      if (availableEnvVars.length > 0) {
+        details.push(availableEnvVars.join(', '))
+      }
+    }
+
+    if (recipe.sshAgent) {
+      details.push('SSH agent')
+    }
+
+    // Warn if no credentials are available at all
+    const hasEnvCreds = availableEnvVars.length > 0
+    const hasDotfiles = recipe.dotfiles ? recipe.dotfiles.some((df) => fs.existsSync(expandHome(df.path))) : false
+
+    if (!hasDotfiles && !hasEnvCreds && (recipe.dotfiles?.length || recipe.environment?.length)) {
+      const missing: string[] = []
+      if (recipe.dotfiles) missing.push(...recipe.dotfiles.map((df) => df.path))
+      if (recipe.environment) missing.push(...recipe.environment.map((e) => `$${e}`))
+      results.push(fail(`Tool: ${recipe.name}`, `no credentials found (checked: ${missing.join(', ')})`))
+    } else {
+      results.push(pass(`Tool: ${recipe.name}`, details.join(', ') || 'configured'))
+    }
+
+    // Warn if tool is also in hostCommands (informational)
+    const hostCommands = new Set([
+      ...globalConfig.hostCommands,
+      ...(workspace?.config.sandbox?.host_commands ?? []),
+    ])
+    if (hostCommands.has(name)) {
+      results.push(pass(`Tool: ${recipe.name}`, `also in host_commands (host_commands takes precedence at exec time)`))
+    }
+  }
+
+  return results
+}
+
 // --- Main command ---
 
 export function doctorCommand(): void {
@@ -227,6 +308,9 @@ export function doctorCommand(): void {
   // Config validation
   results.push(...checkGlobalConfig())
   results.push(...checkWorkspace())
+
+  // Tool recipe validation
+  results.push(...checkTools())
 
   // Print all results
   for (const result of results) {

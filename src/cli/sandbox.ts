@@ -19,7 +19,8 @@ import {
 } from './state'
 import { Spinner } from './spinner'
 import { resolvePolicy } from './policy'
-import type { WorkspaceConfig, MountEntry, SandboxState } from '../shared/types'
+import { resolveToolRequirements } from './tools'
+import type { WorkspaceConfig, MountEntry, SandboxState, DotfileEntry } from '../shared/types'
 
 const LEASH_CODER_IMAGE = 'public.ecr.aws/s5i7k8t3/strongdm/coder'
 const LEASH_IMAGE = 'public.ecr.aws/s5i7k8t3/strongdm/leash'
@@ -92,7 +93,22 @@ async function startSandbox(
   const resolvedPolicy = resolvePolicy(workspaceRoot, workspaceConfig, globalConfig)
 
   // Resolve SSH agent forwarding (workspace overrides global)
-  const sshAgent = resolveSshAgent(workspaceConfig, globalConfig)
+  const explicitSshAgent = resolveSshAgent(workspaceConfig, globalConfig)
+
+  // Resolve tool recipes and merge their requirements into the effective config.
+  // Tools from both global and workspace configs are unioned.
+  const tools = [...new Set([...globalConfig.tools, ...(workspaceConfig.sandbox?.tools ?? [])])]
+  const toolReqs = resolveToolRequirements(tools)
+
+  // Print warnings for unknown tool names
+  for (const unknown of toolReqs.warnings) {
+    process.stderr.write(`pippin: warning: unknown tool "${unknown}" (no built-in recipe)\n`)
+  }
+
+  // Merge: explicit config takes priority, tool recipes add to it
+  const effectiveDotfiles = mergeAndDedup(globalConfig.dotfiles, toolReqs.dotfiles)
+  const effectiveEnvironment = [...new Set([...globalConfig.environment, ...toolReqs.environment])]
+  const effectiveSshAgent = explicitSshAgent || toolReqs.sshAgent
 
   // Prepare the share directory with the pippin-server binary
   const shareDir = prepareShareDir(workspaceRoot)
@@ -101,8 +117,87 @@ async function startSandbox(
   // login shell spawn must not happen while we hold the TTY in spinner mode.
   const shellEnv = getShellEnv()
 
+  // Run host-side prepare functions for tool recipes. These can inject env vars
+  // and override dotfile mounts with dynamically generated files (e.g. Snowflake
+  // extracts a keychain token and generates a modified config.toml).
+  const dotfileOverrides = new Map<string, string>() // original path -> generated path
+  for (const prepare of toolReqs.hostPrepares) {
+    try {
+      const result = prepare(shellEnv)
+      if (!result) continue
+      if (result.env) {
+        for (const [key, value] of Object.entries(result.env)) {
+          if (key in shellEnv) continue
+          shellEnv[key] = value
+          if (!effectiveEnvironment.includes(key)) {
+            effectiveEnvironment.push(key)
+          }
+        }
+      }
+      if (result.dotfileOverrides) {
+        for (const [original, generated] of Object.entries(result.dotfileOverrides)) {
+          dotfileOverrides.set(original, generated)
+        }
+      }
+    } catch {
+      // Prepare failed — skip silently; `pippin doctor` will surface missing credentials.
+    }
+  }
+
+  // Run env resolvers for tool recipes (e.g. `gh auth token` for GH_TOKEN).
+  // Only runs when the env var is not already present in the shell environment.
+  for (const [envVar, command] of Object.entries(toolReqs.envResolvers)) {
+    if (envVar in shellEnv) continue
+    try {
+      const result = spawnSync('sh', ['-c', command], {
+        encoding: 'utf-8',
+        timeout: 10_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      const value = result.stdout?.trim()
+      if (result.status === 0 && value) {
+        shellEnv[envVar] = value
+        // Ensure the resolved var is in the forwarding list so buildLeashArgs
+        // picks it up and passes it to the container.
+        if (!effectiveEnvironment.includes(envVar)) {
+          effectiveEnvironment.push(envVar)
+        }
+      }
+    } catch {
+      // Resolver failed — skip silently; `pippin doctor` will surface missing credentials.
+    }
+  }
+
+  // Run multi-var resolvers (commands that output KEY=VALUE lines).
+  // Used for tools like AWS where a single command resolves multiple credentials.
+  for (const command of toolReqs.envMultiResolvers) {
+    try {
+      const result = spawnSync('sh', ['-c', command], {
+        encoding: 'utf-8',
+        timeout: 10_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      if (result.status === 0 && result.stdout) {
+        for (const line of result.stdout.split('\n')) {
+          const idx = line.indexOf('=')
+          if (idx <= 0) continue
+          const key = line.slice(0, idx)
+          const value = line.slice(idx + 1)
+          // Don't overwrite env vars that are already set
+          if (key in shellEnv) continue
+          shellEnv[key] = value
+          if (!effectiveEnvironment.includes(key)) {
+            effectiveEnvironment.push(key)
+          }
+        }
+      }
+    } catch {
+      // Resolver failed — skip silently; `pippin doctor` will surface missing credentials.
+    }
+  }
+
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles, globalConfig.environment, shellEnv, sshAgent, resolvedImage, resolvedPolicy)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, dotfileOverrides, resolvedImage, resolvedPolicy)
 
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
@@ -410,7 +505,32 @@ function computeConfigHash(
   const sshAgent = resolveSshAgent(workspaceConfig, globalConfig)
   parts.push(`sshAgent:${sshAgent}`)
 
+  // Tool declarations (sorted for determinism)
+  const tools = [...new Set([...globalConfig.tools, ...(workspaceConfig.sandbox?.tools ?? [])])]
+  parts.push(...tools.sort().map((t) => `tool:${t}`))
+
   return crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)
+}
+
+/**
+ * Merge two dotfile lists, deduplicating by expanded path.
+ * First list (explicit user config) takes priority over second (tool recipes).
+ */
+function mergeAndDedup(
+  explicit: DotfileEntry[],
+  fromRecipes: DotfileEntry[],
+): DotfileEntry[] {
+  const seen = new Set<string>()
+  const result: DotfileEntry[] = []
+
+  for (const entry of [...explicit, ...fromRecipes]) {
+    const expanded = expandHome(entry.path)
+    if (seen.has(expanded)) continue
+    seen.add(expanded)
+    result.push(entry)
+  }
+
+  return result
 }
 
 /** Build the leash CLI arguments */
@@ -422,6 +542,7 @@ function buildLeashArgs(
   environment: string[],
   shellEnv: Record<string, string>,
   sshAgent: boolean,
+  dotfileOverrides: Map<string, string>,
   image?: string,
   policy?: string,
 ): string[] {
@@ -441,13 +562,31 @@ function buildLeashArgs(
     args.push('--policy', policy)
   }
 
-  // Add dotfile mounts from global config
+  // Add dotfile mounts from global config (and tool recipes, already merged).
+  // If a hostPrepare function generated an override for a dotfile path,
+  // mount the generated file at the original path instead.
+  //
+  // Dotfile paths are specified relative to ~ (e.g. ~/.gitconfig).
+  // On the host, ~ expands to /Users/martin, but inside the container
+  // the user is root and HOME=/root.  We mount with destination paths
+  // under /root so that tools find their config at the expected location.
+  const containerHome = '/root'
+  const hostHome = os.homedir()
+  const mountedPaths = new Set<string>()
   for (const dotfile of dotfiles) {
     const expanded = expandHome(dotfile.path)
-    if (!fs.existsSync(expanded)) continue
+    const overrideSrc = dotfileOverrides.get(dotfile.path)
+    const hostPath = overrideSrc ?? expanded
+    if (!fs.existsSync(hostPath)) continue
+    if (mountedPaths.has(expanded)) continue
+    mountedPaths.add(expanded)
+    // Map ~/foo → /root/foo inside the container
+    const containerPath = expanded.startsWith(hostHome)
+      ? containerHome + expanded.slice(hostHome.length)
+      : expanded
     const mountSpec = dotfile.readonly
-      ? `${expanded}:${expanded}:ro`
-      : `${expanded}:${expanded}`
+      ? `${hostPath}:${containerPath}:ro`
+      : `${hostPath}:${containerPath}`
     args.push('-v', mountSpec)
   }
 
@@ -456,9 +595,15 @@ function buildLeashArgs(
   for (const mount of extraMounts) {
     const expanded = expandHome(mount.path)
     if (!fs.existsSync(expanded)) continue
+    if (mountedPaths.has(expanded)) continue
+    mountedPaths.add(expanded)
+    // Map ~/foo → /root/foo inside the container
+    const containerPath = expanded.startsWith(hostHome)
+      ? containerHome + expanded.slice(hostHome.length)
+      : expanded
     const mountSpec = mount.readonly
-      ? `${expanded}:${expanded}:ro`
-      : `${expanded}:${expanded}`
+      ? `${expanded}:${containerPath}:ro`
+      : `${expanded}:${containerPath}`
     args.push('-v', mountSpec)
   }
 
@@ -480,14 +625,43 @@ function buildLeashArgs(
 
     // Mount the host's known_hosts file so SSH doesn't prompt for host
     // key verification inside the non-interactive container.
+    // Skip if already mounted by a tool recipe or dotfile config.
     const knownHosts = path.join(os.homedir(), '.ssh', 'known_hosts')
-    if (fs.existsSync(knownHosts)) {
-      args.push('-v', `${knownHosts}:${knownHosts}:ro`)
+    if (fs.existsSync(knownHosts) && !mountedPaths.has(knownHosts)) {
+      mountedPaths.add(knownHosts)
+      const containerKnownHosts = knownHosts.startsWith(hostHome)
+        ? containerHome + knownHosts.slice(hostHome.length)
+        : knownHosts
+      args.push('-v', `${knownHosts}:${containerKnownHosts}:ro`)
     }
   }
 
-  // The command to run inside the container
-  args.push('--', '/leash/pippin-server')
+  // The command to run inside the container.
+  // We use a shell wrapper to build a combined CA bundle (system CAs + the
+  // leash MITM proxy CA) so that tools like the AWS CLI, Python requests, and
+  // Node.js trust TLS connections that pass through leash's proxy.
+  // It also creates the Snowflake credential cache if the host extracted a
+  // keychain token (via the snowflake recipe's hostPrepare).
+  const COMBINED_CA = '/tmp/combined-ca.pem'
+  const SF_CACHE_DIR = '$HOME/.cache/snowflake'
+  const SF_CACHE_FILE = `${SF_CACHE_DIR}/credential_cache_v1.json`
+  const bootstrap = [
+    // Create a combined CA bundle from the system store + leash MITM CA.
+    // If leash's CA isn't present (e.g. running without leash), just copy
+    // the system bundle so the env vars still point at something valid.
+    `if [ -f /leash/ca-cert.pem ]; then cat /etc/ssl/certs/ca-certificates.crt /leash/ca-cert.pem > ${COMBINED_CA}; else cp /etc/ssl/certs/ca-certificates.crt ${COMBINED_CA}; fi`,
+    `export SSL_CERT_FILE=${COMBINED_CA}`,
+    `export AWS_CA_BUNDLE=${COMBINED_CA}`,
+    `export REQUESTS_CA_BUNDLE=${COMBINED_CA}`,
+    `export NODE_EXTRA_CA_CERTS=${COMBINED_CA}`,
+    // If the Snowflake recipe injected a cached ID token, create the
+    // file-based credential cache that the Python connector reads on Linux.
+    // The cache dir must be 0700 and the file 0600 for the connector to
+    // accept them.
+    `if [ -n "$SNOWFLAKE_ID_TOKEN" ] && [ -n "$SNOWFLAKE_TOKEN_HASH_KEY" ]; then mkdir -p ${SF_CACHE_DIR} && chmod 700 ${SF_CACHE_DIR} && printf '{"tokens":{"%s":"%s"}}' "$SNOWFLAKE_TOKEN_HASH_KEY" "$SNOWFLAKE_ID_TOKEN" > ${SF_CACHE_FILE} && chmod 600 ${SF_CACHE_FILE}; fi`,
+    'exec /leash/pippin-server',
+  ].join(' && ')
+  args.push('--', 'sh', '-c', bootstrap)
 
   return args
 }

@@ -104,6 +104,8 @@ export interface WorkspaceConfig {
     host_commands?: string[]
     /** Forward the Docker Desktop SSH agent socket into the container so git/ssh can authenticate */
     ssh_agent?: boolean
+    /** Tools to auto-configure in the sandbox (e.g. "git", "gh", "aws"). Pippin mounts credentials and sets env vars automatically. */
+    tools?: string[]
   }
 }
 
@@ -131,6 +133,8 @@ export interface GlobalConfig {
   hostCommands?: string[]
   /** Forward the Docker Desktop SSH agent socket into the container so git/ssh can authenticate */
   sshAgent?: boolean
+  /** Tools to auto-configure in the sandbox (e.g. "git", "gh", "aws"). Pippin mounts credentials and sets env vars automatically. */
+  tools?: string[]
 }
 
 // --- Sandbox State ---

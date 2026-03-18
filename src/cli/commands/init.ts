@@ -33,6 +33,11 @@ const TEMPLATE = `# Pippin sandbox configuration
 # Forward the host SSH agent into the sandbox (Docker Desktop for Mac only).
 # Enables git clone/pull/push over SSH without mounting private keys.
 # ssh_agent = true
+
+# Tools to auto-configure in the sandbox. Pippin mounts credentials,
+# forwards env vars, and enables SSH agent as needed for each tool.
+# Supported: git, gh, aws, snowflake, npm, ssh
+# tools = ["git"]
 `
 
 /** Create a .pippin.toml file in the current directory */
