@@ -102,6 +102,8 @@ export interface WorkspaceConfig {
     shell?: string
     /** Commands that should run directly on the host instead of in the sandbox (matched by first token) */
     host_commands?: string[]
+    /** Forward the Docker Desktop SSH agent socket into the container so git/ssh can authenticate */
+    ssh_agent?: boolean
   }
 }
 
@@ -127,6 +129,8 @@ export interface GlobalConfig {
   shell?: string
   /** Commands that should run directly on the host instead of in the sandbox (matched by first token) */
   hostCommands?: string[]
+  /** Forward the Docker Desktop SSH agent socket into the container so git/ssh can authenticate */
+  sshAgent?: boolean
 }
 
 // --- Sandbox State ---

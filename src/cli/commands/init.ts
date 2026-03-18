@@ -29,6 +29,10 @@ const TEMPLATE = `# Pippin sandbox configuration
 # Matched by the first word of the command (e.g. "git" matches "git pull").
 # NOTE: host commands are NOT subject to Cedar policy enforcement.
 # host_commands = ["git", "ssh"]
+
+# Forward the host SSH agent into the sandbox (Docker Desktop for Mac only).
+# Enables git clone/pull/push over SSH without mounting private keys.
+# ssh_agent = true
 `
 
 const POLICY_TEMPLATE = `// Pippin Sandbox Policy

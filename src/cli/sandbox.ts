@@ -91,6 +91,9 @@ async function startSandbox(
   // Resolve the Cedar policy file (if configured)
   const resolvedPolicy = resolvePolicy(workspaceRoot, workspaceConfig, globalConfig)
 
+  // Resolve SSH agent forwarding (workspace overrides global)
+  const sshAgent = resolveSshAgent(workspaceConfig, globalConfig)
+
   // Prepare the share directory with the pippin-server binary
   const shareDir = prepareShareDir(workspaceRoot)
 
@@ -99,7 +102,7 @@ async function startSandbox(
   const shellEnv = getShellEnv()
 
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles, globalConfig.environment, shellEnv, resolvedImage, resolvedPolicy)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, globalConfig.dotfiles, globalConfig.environment, shellEnv, sshAgent, resolvedImage, resolvedPolicy)
 
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
@@ -335,6 +338,20 @@ function buildDockerImage(dockerfilePath: string): string {
 }
 
 /**
+ * Resolve whether SSH agent forwarding should be enabled.
+ * Workspace config takes precedence over global config.
+ */
+function resolveSshAgent(
+  workspaceConfig: WorkspaceConfig,
+  globalConfig: ResolvedGlobalConfig,
+): boolean {
+  if (typeof workspaceConfig.sandbox?.ssh_agent === 'boolean') {
+    return workspaceConfig.sandbox.ssh_agent
+  }
+  return globalConfig.sshAgent
+}
+
+/**
  * Compute a deterministic fingerprint of the sandbox-relevant configuration.
  * Used to detect when the config has changed since the sandbox was started,
  * so we can auto-restart instead of silently running with stale settings.
@@ -389,6 +406,10 @@ function computeConfigHash(
     parts.push(`env:${e}`)
   }
 
+  // SSH agent forwarding
+  const sshAgent = resolveSshAgent(workspaceConfig, globalConfig)
+  parts.push(`sshAgent:${sshAgent}`)
+
   return crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)
 }
 
@@ -400,6 +421,7 @@ function buildLeashArgs(
   dotfiles: { path: string; readonly?: boolean }[],
   environment: string[],
   shellEnv: Record<string, string>,
+  sshAgent: boolean,
   image?: string,
   policy?: string,
 ): string[] {
@@ -447,6 +469,20 @@ function buildLeashArgs(
   for (const name of environment) {
     if (name in shellEnv) {
       args.push('-e', `${name}=${shellEnv[name]}`)
+    }
+  }
+
+  // SSH agent forwarding via Docker Desktop's host-services socket
+  if (sshAgent) {
+    const agentSock = '/run/host-services/ssh-auth.sock'
+    args.push('-v', `${agentSock}:${agentSock}`)
+    args.push('-e', `SSH_AUTH_SOCK=${agentSock}`)
+
+    // Mount the host's known_hosts file so SSH doesn't prompt for host
+    // key verification inside the non-interactive container.
+    const knownHosts = path.join(os.homedir(), '.ssh', 'known_hosts')
+    if (fs.existsSync(knownHosts)) {
+      args.push('-v', `${knownHosts}:${knownHosts}:ro`)
     }
   }
 

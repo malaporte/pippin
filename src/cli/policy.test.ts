@@ -13,6 +13,7 @@ function makeGlobalConfig(overrides: Partial<ResolvedGlobalConfig> = {}): Resolv
     dotfiles: [],
     environment: [],
     hostCommands: [],
+    sshAgent: false,
     shell: 'bash',
     image: undefined,
     dockerfile: undefined,

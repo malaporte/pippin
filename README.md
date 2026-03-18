@@ -101,6 +101,9 @@ image = "my-registry/my-image:latest"
 # Commands that run on the host instead of in the sandbox
 # host_commands = ["git", "ssh"]
 
+# Forward the host SSH agent into the sandbox (Docker Desktop for Mac)
+# ssh_agent = true
+
 # Extra paths to mount into the sandbox
 [[sandbox.mounts]]
 path = "/shared/libs"
@@ -117,7 +120,8 @@ readonly = true
   "dotfiles": ["/Users/you/.zshrc", "/Users/you/.gitconfig"],
   "image": "my-registry/my-image:latest",
   "policy": "/path/to/global-policy.cedar",
-  "hostCommands": ["git", "ssh"]
+  "hostCommands": ["git", "ssh"],
+  "sshAgent": true
 }
 ```
 
@@ -178,6 +182,41 @@ The merged set from both configs is used (union). Matching is by the first token
 
 **Note:** Host commands bypass sandbox isolation and Cedar policy enforcement entirely. Only add commands you trust to run outside the sandbox.
 
+### SSH agent forwarding
+
+Instead of using `hostCommands` to run `git` on the host, you can forward your SSH agent into the sandbox so git and ssh work natively inside the container. This uses Docker Desktop for Mac's built-in agent proxy socket.
+
+```json
+// ~/.config/pippin/config.json
+{ "sshAgent": true }
+```
+
+```toml
+# .pippin.toml
+[sandbox]
+ssh_agent = true
+```
+
+When enabled, Pippin mounts Docker Desktop's SSH agent socket (`/run/host-services/ssh-auth.sock`) into the container and sets `SSH_AUTH_SOCK`. If `~/.ssh/known_hosts` exists on the host, it is also mounted read-only so SSH doesn't prompt for host key verification.
+
+**Requirements:**
+- Docker Desktop for Mac (provides the agent proxy socket)
+- Your SSH key must be loaded in the host agent (`ssh-add -l` to check, `ssh-add --apple-use-keychain ~/.ssh/id_rsa` to add)
+
+To have your key load automatically on login, add this to `~/.ssh/config`:
+
+```
+Host *
+  AddKeysToAgent yes
+  UseKeychain yes
+  IdentityFile ~/.ssh/id_rsa
+```
+
+**Limitations:**
+- Only works with Docker Desktop for Mac — not with Colima, OrbStack, or remote Docker hosts
+- Does not work with non-default SSH agents (1Password, gpg-agent, Secretive) since Docker Desktop proxies the macOS default launchd agent
+- Some Docker Desktop versions have intermittent bugs with the agent socket; restarting Docker Desktop usually resolves this
+
 ### Cedar security policies
 
 Pippin supports [Cedar](https://docs.cedarpolicy.com) policy files to restrict what sandboxes can do. Policies control command execution, file access, and network connections, enforced at the kernel level by leash via eBPF.
@@ -212,7 +251,7 @@ when { resource in [Host::"github.com", Host::"*.npmjs.org", Host::"registry.npm
 
 ### Automatic restart on config changes
 
-Pippin tracks a fingerprint of the active sandbox configuration — covering the Docker image, Cedar policy (including file contents), dotfile mounts, workspace mounts, and forwarded environment variables. When you change any of these settings and run your next command, Pippin detects the drift and automatically restarts the sandbox with the new configuration:
+Pippin tracks a fingerprint of the active sandbox configuration — covering the Docker image, Cedar policy (including file contents), dotfile mounts, workspace mounts, forwarded environment variables, and SSH agent forwarding. When you change any of these settings and run your next command, Pippin detects the drift and automatically restarts the sandbox with the new configuration:
 
 ```
 $ pippin shell
