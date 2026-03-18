@@ -35,6 +35,14 @@ Pippin is also useful as a general-purpose sandboxing tool — run any project's
 5. You can also run `pippin shell` to drop into an interactive shell inside the sandbox.
 6. The container exits automatically after an idle timeout (default: 15 minutes) — the timer only starts when no commands are running.
 
+## Requirements
+
+- **Docker** — any recent version of Docker Desktop or Docker Engine
+- **[leash](https://github.com/strongdm/leash)** — the sandbox runtime that manages containers and enforces Cedar policies via eBPF (`public.ecr.aws/s5i7k8t3/strongdm/leash`)
+- **macOS or Linux** — x64 or arm64. Windows is not supported.
+
+Run `pippin doctor` after installing to verify your setup.
+
 ## Installation
 
 ```sh
@@ -42,8 +50,6 @@ curl -fsSL https://raw.githubusercontent.com/malaporte/pippin/main/scripts/insta
 ```
 
 This installs the latest release to `~/.local/bin/pippin`. You can override the destination with `PIPPIN_INSTALL_DIR=/usr/local/bin` or pin a version with `PIPPIN_VERSION=0.1.1`.
-
-Requires [leash](https://github.com/strongdm/leash) (`public.ecr.aws/s5i7k8t3/strongdm/leash`) and Docker.
 
 ### Build from source
 
@@ -95,6 +101,7 @@ This creates a `.pippin.toml` file with commented-out examples of all available 
 | `pippin stop --all`        | Stop all running sandboxes                       |
 | `pippin restart`           | Restart the sandbox (config changes auto-restart) |
 | `pippin update [--force]`  | Update pippin to the latest version              |
+| `pippin doctor`            | Check prerequisites and validate configuration   |
 
 ## Configuration
 
@@ -138,7 +145,11 @@ readonly = true
   "idleTimeout": 900,
   "portRangeStart": 9111,
   "shell": "bash",
-  "dotfiles": ["/Users/you/.zshrc", "/Users/you/.gitconfig"],
+  "dotfiles": [
+    { "path": "/Users/you/.zshrc" },
+    { "path": "/Users/you/.gitconfig", "readonly": true }
+  ],
+  "environment": ["NPM_TOKEN", "AWS_PROFILE"],
   "image": "my-registry/my-image:latest",
   "policy": "/path/to/global-policy.cedar",
   "hostCommands": ["git", "ssh"],
@@ -146,7 +157,7 @@ readonly = true
 }
 ```
 
-Dotfiles are mounted into every sandbox so your shell environment and git config are available.
+Dotfiles are mounted into every sandbox so your shell environment and git config are available. Each entry is an object with a `path` and an optional `readonly` flag (defaults to `false`).
 
 ### Custom Docker image
 
@@ -237,6 +248,19 @@ Host *
 - Only works with Docker Desktop for Mac — not with Colima, OrbStack, or remote Docker hosts
 - Does not work with non-default SSH agents (1Password, gpg-agent, Secretive) since Docker Desktop proxies the macOS default launchd agent
 - Some Docker Desktop versions have intermittent bugs with the agent socket; restarting Docker Desktop usually resolves this
+
+### Environment variable forwarding
+
+You can forward specific host environment variables into every sandbox. This is useful for tokens, credentials, or configuration that your build tools need.
+
+```json
+// ~/.config/pippin/config.json
+{ "environment": ["NPM_TOKEN", "AWS_PROFILE", "GITHUB_TOKEN"] }
+```
+
+Pippin resolves the values from your login shell environment when the sandbox starts. Only the variable names are stored in the config — the actual values are read at runtime. Changes to the `environment` list trigger an automatic sandbox restart.
+
+This is a global-config-only setting (not available in `.pippin.toml`).
 
 ### Cedar security policies
 
