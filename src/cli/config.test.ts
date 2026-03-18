@@ -222,4 +222,54 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
     expect(cfg.image).toBeUndefined()
     expect(cfg.dockerfile).toBeUndefined()
   })
+
+  it('reads back hostCommands from a written config', async () => {
+    const v = Date.now()
+    const { writeGlobalConfig, readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    writeGlobalConfig({ hostCommands: ['git', 'ssh'] })
+
+    const cfg = readGlobalConfig()
+    expect(cfg.hostCommands).toEqual(['git', 'ssh'])
+  })
+
+  it('defaults hostCommands to empty array when not present', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({ idleTimeout: 300 }))
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.hostCommands).toEqual([])
+  })
+
+  it('filters out invalid hostCommands entries', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cfgDir, 'config.json'),
+      JSON.stringify({
+        hostCommands: ['git', 42, null, '', 'ssh'],
+      }),
+    )
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.hostCommands).toEqual(['git', 'ssh'])
+  })
+
+  it('defaults hostCommands to empty array when value is not an array', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cfgDir, 'config.json'),
+      JSON.stringify({ hostCommands: 'git' }),
+    )
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.hostCommands).toEqual([])
+  })
 })

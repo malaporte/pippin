@@ -100,6 +100,8 @@ export interface WorkspaceConfig {
     policy?: string
     /** Shell to use for `pippin shell` (e.g. "bash", "zsh", "sh") */
     shell?: string
+    /** Commands that should run directly on the host instead of in the sandbox (matched by first token) */
+    host_commands?: string[]
   }
 }
 
@@ -123,6 +125,8 @@ export interface GlobalConfig {
   policy?: string
   /** Shell to use for `pippin shell` (e.g. "bash", "zsh", "sh"). Defaults to "bash". */
   shell?: string
+  /** Commands that should run directly on the host instead of in the sandbox (matched by first token) */
+  hostCommands?: string[]
 }
 
 // --- Sandbox State ---

@@ -133,6 +133,11 @@ function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
     if (typeof sandbox.shell === 'string' && sandbox.shell.length > 0) {
       config.sandbox.shell = sandbox.shell
     }
+
+    if (Array.isArray(sandbox.host_commands)) {
+      config.sandbox.host_commands = sandbox.host_commands
+        .filter((c): c is string => typeof c === 'string' && c.length > 0)
+    }
   }
 
   return config

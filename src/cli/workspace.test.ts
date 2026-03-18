@@ -134,6 +134,42 @@ image = ""
     expect(result).not.toBeNull()
     expect(result!.config.sandbox?.image).toBeUndefined()
   })
+
+  it('parses host_commands from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+host_commands = ["git", "ssh"]
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.host_commands).toEqual(['git', 'ssh'])
+  })
+
+  it('filters invalid host_commands entries', () => {
+    const toml = `
+[sandbox]
+host_commands = ["git", 42, "ssh"]
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.host_commands).toEqual(['git', 'ssh'])
+  })
+
+  it('omits host_commands when not present in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+idle_timeout = 300
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.host_commands).toBeUndefined()
+  })
 })
 
 describe('resolveWorkspace', () => {

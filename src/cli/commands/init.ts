@@ -23,6 +23,12 @@ const TEMPLATE = `# Pippin sandbox configuration
 # [[sandbox.mounts]]
 # path = "~/Developer/other-project"
 # readonly = true
+
+# Commands that bypass the sandbox and run directly on the host.
+# Useful for commands that need host-level credentials (SSH keys, tokens).
+# Matched by the first word of the command (e.g. "git" matches "git pull").
+# NOTE: host commands are NOT subject to Cedar policy enforcement.
+# host_commands = ["git", "ssh"]
 `
 
 const POLICY_TEMPLATE = `// Pippin Sandbox Policy

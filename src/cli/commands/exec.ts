@@ -1,13 +1,48 @@
 import { EXEC_PATH, HEALTH_PATH } from '../../shared/types'
 import { resolveWorkspace, validateCwd } from '../workspace'
-import { expandHome } from '../config'
+import { expandHome, readGlobalConfig } from '../config'
 import { ensureSandbox } from '../sandbox'
 import type { ClientMessage, ServerMessage, MountEntry } from '../../shared/types'
+
+/**
+ * Check whether `cmd` should run on the host rather than in the sandbox.
+ * Matches the first token of the command against the merged hostCommands set.
+ */
+function isHostCommand(cmd: string, hostCommands: Set<string>): boolean {
+  const firstToken = cmd.trimStart().split(/\s+/)[0]
+  if (!firstToken) return false
+  return hostCommands.has(firstToken)
+}
+
+/** Execute a command directly on the host (bypassing the sandbox) */
+async function execOnHost(cmd: string): Promise<void> {
+  const proc = Bun.spawn(['sh', '-c', cmd], {
+    cwd: process.cwd(),
+    stdin: 'inherit',
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+
+  const exitCode = await proc.exited
+  process.exit(exitCode)
+}
 
 /** Execute a command inside the sandbox */
 export async function execCommand(cmd: string): Promise<void> {
   const cwd = process.cwd()
   const workspace = resolveWorkspace(cwd)
+  const globalConfig = readGlobalConfig()
+
+  // Merge host commands from global and workspace configs (union)
+  const hostCommands = new Set<string>([
+    ...globalConfig.hostCommands,
+    ...(workspace.config.sandbox?.host_commands ?? []),
+  ])
+
+  if (isHostCommand(cmd, hostCommands)) {
+    await execOnHost(cmd)
+    return
+  }
 
   // Expand ~ in extra mounts for CWD validation
   const extraMounts: MountEntry[] = (workspace.config.sandbox?.mounts ?? []).map((m) => ({
