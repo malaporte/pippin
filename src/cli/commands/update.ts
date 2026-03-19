@@ -3,6 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { Spinner } from '../spinner'
 import { VERSION } from '../version'
+import { listStates } from '../state'
+import { stopAllSandboxes } from '../sandbox'
 
 const GITHUB_REPO = 'malaporte/pippin'
 
@@ -141,6 +143,13 @@ export async function updateCommand(force: boolean): Promise<void> {
 
     spinner.stop()
     process.stderr.write(`pippin: updated to ${latestVersion} (was ${VERSION})\n`)
+
+    // Stop all running sandboxes so they restart with the new server binary
+    const runningSandboxes = listStates()
+    if (runningSandboxes.length > 0) {
+      await stopAllSandboxes()
+      process.stderr.write('pippin: stopped running sandboxes to apply update\n')
+    }
   } catch (err) {
     spinner.stop()
     process.stderr.write(`pippin: update failed: ${(err as Error).message}\n`)
