@@ -191,28 +191,52 @@ describe('resolveWorkspace', () => {
     expect(result.config.sandbox?.idle_timeout).toBe(600)
   })
 
-  it('returns implicit workspace rooted at cwd when no .pippin.toml exists', () => {
-    const nested = path.join(tmpDir, 'no-config')
-    fs.mkdirSync(nested, { recursive: true })
-
-    const result = resolveWorkspace(nested)
-    expect(result.root).toBe(nested)
-    expect(result.config).toEqual({})
-  })
-
-  it('prints a notice to stderr for implicit workspace', () => {
+  it('returns implicit workspace rooted at cwd when no .pippin.toml and no .git exists', () => {
     const nested = path.join(tmpDir, 'no-config')
     fs.mkdirSync(nested, { recursive: true })
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     try {
-      resolveWorkspace(nested)
-      expect(stderrSpy).toHaveBeenCalledWith(
-        expect.stringContaining('no .pippin.toml found'),
-      )
+      const result = resolveWorkspace(nested)
+      expect(result.root).toBe(nested)
+      expect(result.config).toEqual({})
+      expect(stderrSpy).not.toHaveBeenCalled()
     } finally {
       stderrSpy.mockRestore()
     }
+  })
+
+  it('uses .git directory in ancestor as implicit workspace root', () => {
+    const nested = path.join(tmpDir, 'project', 'src')
+    fs.mkdirSync(nested, { recursive: true })
+    fs.mkdirSync(path.join(tmpDir, 'project', '.git'))
+
+    const result = resolveWorkspace(nested)
+    expect(result.root).toBe(path.join(tmpDir, 'project'))
+    expect(result.config).toEqual({})
+  })
+
+  it('uses .git file in ancestor as implicit workspace root (worktree)', () => {
+    const nested = path.join(tmpDir, 'worktree', 'src')
+    fs.mkdirSync(nested, { recursive: true })
+    fs.writeFileSync(path.join(tmpDir, 'worktree', '.git'), 'gitdir: ../.git/worktrees/my-branch\n')
+
+    const result = resolveWorkspace(nested)
+    expect(result.root).toBe(path.join(tmpDir, 'worktree'))
+    expect(result.config).toEqual({})
+  })
+
+  it('.pippin.toml takes priority over .git when both are present', () => {
+    const nested = path.join(tmpDir, 'project', 'src')
+    fs.mkdirSync(nested, { recursive: true })
+    // .git at project level
+    fs.mkdirSync(path.join(tmpDir, 'project', '.git'))
+    // .pippin.toml at a higher level
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), '[sandbox]\nidle_timeout = 120\n')
+
+    const result = resolveWorkspace(nested)
+    expect(result.root).toBe(tmpDir)
+    expect(result.config.sandbox?.idle_timeout).toBe(120)
   })
 })
 

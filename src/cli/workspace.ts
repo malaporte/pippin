@@ -1,7 +1,6 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { parse as parseToml } from 'smol-toml'
-import kleur from 'kleur'
 import type { WorkspaceConfig, MountEntry } from '../shared/types'
 
 const WORKSPACE_CONFIG_FILE = '.pippin.toml'
@@ -42,22 +41,35 @@ export function findWorkspace(startDir: string): ResolvedWorkspace | null {
 }
 
 /**
+ * Walk from `startDir` upward to find a .git entry (file or directory).
+ * Returns the directory containing .git, or null if not found.
+ */
+function findGitRoot(startDir: string): string | null {
+  let dir = path.resolve(startDir)
+  while (true) {
+    try {
+      fs.lstatSync(path.join(dir, '.git'))
+      return dir
+    } catch {
+      // No .git here — keep walking up
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
+/**
  * Resolve the workspace for the current working directory.
- * If no .pippin.toml is found, falls back to an implicit workspace rooted at
- * the current directory with an empty config. This means the sandbox will only
- * mount the current directory and its children.
+ * If no .pippin.toml is found, walks up the directory tree to find a .git
+ * entry and uses that directory as the implicit workspace root. If no .git
+ * is found either, falls back silently to the current directory.
  */
 export function resolveWorkspace(cwd: string): ResolvedWorkspace {
   const workspace = findWorkspace(cwd)
   if (!workspace) {
-    const resolvedCwd = path.resolve(cwd)
-    process.stderr.write(
-      kleur.yellow(`pippin: no .pippin.toml found, using ${resolvedCwd} as workspace root`) + '\n',
-    )
-    return {
-      root: resolvedCwd,
-      config: {},
-    }
+    const root = findGitRoot(cwd) ?? path.resolve(cwd)
+    return { root, config: {} }
   }
   return workspace
 }

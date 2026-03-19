@@ -28,7 +28,7 @@ Pippin is also useful as a general-purpose sandboxing tool — run any project's
 
 ## How it works
 
-1. `pippin run <command>` finds your workspace root (the nearest `.pippin.toml`, or the current directory if none exists).
+1. `pippin run <command>` finds your workspace root: the nearest `.pippin.toml` up the directory tree, then the nearest `.git` root, then the current directory.
 2. If no sandbox is running, Pippin starts a container with your workspace mounted.
 3. A lightweight server inside the container receives the command over WebSocket and executes it.
 4. stdout/stderr stream back to your terminal live. A full PTY is allocated, so stdin, signals, and terminal resize events are all forwarded — interactive TUI apps work seamlessly.
@@ -75,7 +75,7 @@ cd my-project
 pippin run hostname   # prints the container's hostname, not the host's
 ```
 
-When no `.pippin.toml` is found, Pippin uses the current directory as the workspace root. Only that directory and its children are mounted into the sandbox.
+When no `.pippin.toml` is found, Pippin walks up the directory tree to find a `.git` entry and uses that directory as the workspace root — so running from any subdirectory of a Git repo does the right thing automatically, including Git worktrees. If no `.git` is found either, the current directory is used. Only the workspace root and its children are mounted into the sandbox.
 
 To customize the sandbox (idle timeout, extra mounts, custom images, security policies), create a config file:
 
@@ -107,7 +107,7 @@ This creates a `.pippin.toml` file with commented-out examples of all available 
 
 ### Workspace config (`.pippin.toml`) — optional
 
-A `.pippin.toml` file marks the workspace root and lets you customize the sandbox. If no config file is found, Pippin defaults to using the current directory as the workspace root with default settings.
+A `.pippin.toml` file marks the workspace root and lets you customize the sandbox. If no config file is found, Pippin walks up the directory tree to find a `.git` entry and uses that as the implicit workspace root (falling back to the current directory if none is found).
 
 ```toml
 [sandbox]
