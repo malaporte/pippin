@@ -140,8 +140,9 @@ async function startSandbox(
           dotfileOverrides.set(original, generated)
         }
       }
-    } catch {
+    } catch (e) {
       // Prepare failed — skip silently; `pippin doctor` will surface missing credentials.
+      process.stderr.write(`pippin: hostPrepare failed: ${e}\n`)
     }
   }
 

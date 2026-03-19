@@ -120,7 +120,7 @@ function parseSimpleToml(content: string): Record<string, string> {
  *    account and user.
  * 2. Read the cached ID token from the macOS keychain using `security`.
  * 3. Compute the hash key used by the Snowflake Python connector's
- *    FileTokenCache (SHA-256 of "HOST:USER:ID_TOKEN").
+ *    FileTokenCache (SHA-256 of "USER:HOST:ID_TOKEN").
  * 4. Return env vars (SNOWFLAKE_ID_TOKEN, SNOWFLAKE_TOKEN_HASH_KEY) that
  *    the container entrypoint uses to create the credential cache file.
  * 5. Generate a modified config.toml with `client_store_temporary_credential = true`
@@ -160,29 +160,30 @@ function prepareSnowflake(shellEnv: Record<string, string>): HostPrepareResult |
     : `${account.toUpperCase()}.SNOWFLAKECOMPUTING.COM`
   const upperUser = user.toUpperCase()
 
-  // The keychain stores the token with service = "USER:HOST:ID_TOKEN"
-  // (this is the format used by the externalbrowser authenticator, which
-  // differs from the KeyringTokenCache format of "HOST:USER:ID_TOKEN")
+  // The keychain stores the token with service = string_key() = "USER:HOST:ID_TOKEN"
+  // (the TokenKey dataclass fields are named (user, host) but _auth.py passes
+  // (host, user) positionally, so self.host=user, self.user=host — the naming
+  // is misleading but the format is USER:HOST:ID_TOKEN for both keyring and file cache)
   const keychainService = `${upperUser}:${host}:ID_TOKEN`
+  // The keychain "account" (username) field stores the host value (due to the
+  // same arg swap in the connector: key.user is actually the host).
+  const keychainAccount = host
 
-  // Read the token from macOS keychain
-  const result = spawnSync('security', [
-    'find-generic-password', '-s', keychainService, '-w',
-  ], {
-    encoding: 'utf-8',
-    timeout: 5_000,
-    stdio: ['ignore', 'pipe', 'ignore'],
-  })
+  // Read the cached ID token from the macOS keychain. We use the Python
+  // `keyring` module from snow's own environment because the macOS keychain
+  // ACL only grants access to the application that stored the item. The
+  // `security` CLI triggers an authorization dialog that hangs in a non-
+  // interactive context, but Python's keyring (which shares the same
+  // entitlement as the snow process that wrote the token) reads it cleanly.
+  const token = readKeychainViaSnowPython(shellEnv, keychainService, keychainAccount)
+  if (!token) return undefined
 
-  if (result.status !== 0 || !result.stdout?.trim()) {
-    return undefined
-  }
-
-  const token = result.stdout.trim()
-
-  // Compute the hash key for the FileTokenCache
-  // FileTokenCache uses TokenKey.string_key() = "HOST:USER:ID_TOKEN"
-  const stringKey = `${host}:${upperUser}:ID_TOKEN`
+  // Compute the hash key for the FileTokenCache.
+  // The connector calls TokenKey(host, user, cred_type), but the TokenKey
+  // dataclass fields are (user, host, tokenType) — so positional args swap:
+  //   self.user = host, self.host = user
+  // string_key() returns f"{self.host}:{self.user}:{type}" = "USER:HOST:ID_TOKEN"
+  const stringKey = `${upperUser}:${host}:ID_TOKEN`
   const hashKey = crypto.createHash('sha256').update(stringKey).digest('hex')
 
   // Generate a modified config.toml that adds client_store_temporary_credential = true
@@ -203,6 +204,64 @@ function prepareSnowflake(shellEnv: Record<string, string>): HostPrepareResult |
       '~/.snowflake/config.toml': modifiedConfigPath,
     },
   }
+}
+
+/**
+ * Read a keychain password using Python's `keyring` module from the same
+ * Python environment that the `snow` CLI uses. This avoids the macOS keychain
+ * ACL issue where `security find-generic-password -w` triggers an authorization
+ * dialog (and hangs in non-interactive contexts).
+ *
+ * We find snow's Python by reading the shebang of the `snow` binary. This
+ * Python has `keyring` installed and shares the app identity that originally
+ * stored the credential, so macOS grants access without prompting.
+ */
+function readKeychainViaSnowPython(
+  shellEnv: Record<string, string>,
+  service: string,
+  account: string,
+): string | undefined {
+  // Find the `snow` binary in the user's PATH
+  const snowWhich = spawnSync('sh', ['-l', '-c', 'which snow'], {
+    encoding: 'utf-8',
+    timeout: 5_000,
+    env: shellEnv,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  const snowPath = snowWhich.stdout?.trim()
+  if (!snowPath || snowWhich.status !== 0) return undefined
+
+  // Read the shebang to find snow's Python interpreter
+  let shebang: string
+  try {
+    const fd = fs.openSync(snowPath, 'r')
+    const buf = Buffer.alloc(256)
+    fs.readSync(fd, buf, 0, 256, 0)
+    fs.closeSync(fd)
+    const firstLine = buf.toString('utf-8').split('\n')[0]
+    if (!firstLine.startsWith('#!')) return undefined
+    shebang = firstLine.slice(2).trim()
+  } catch {
+    return undefined
+  }
+
+  // Resolve symlinks — if snow is a symlink (e.g. homebrew), the shebang
+  // points into the Cellar. Follow the real path for the Python binary.
+  const pythonPath = fs.existsSync(shebang) ? shebang : undefined
+  if (!pythonPath) return undefined
+
+  // Use keyring.get_password() to read the token
+  const result = spawnSync(pythonPath, [
+    '-c',
+    `import keyring; t = keyring.get_password(${JSON.stringify(service)}, ${JSON.stringify(account)}); print(t or '', end='')`,
+  ], {
+    encoding: 'utf-8',
+    timeout: 10_000,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+
+  const token = result.stdout?.trim()
+  return token || undefined
 }
 
 /**

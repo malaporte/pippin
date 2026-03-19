@@ -1,161 +1,160 @@
-# Snowflake Tool Recipe — Investigation Notes
+# Snowflake Auth in the Pippin Sandbox
 
-## Goal
+How `snow sql` works inside the pippin sandbox without a browser login.
 
-Make `snow sql` work inside the Pippin sandbox with `externalbrowser` auth,
-without requiring a browser login each time. On macOS the Snowflake connector
-caches an ID token in the keychain; on Linux (container) it uses a file-based
-cache. We need to bridge the two.
+## The Problem
 
-## What We Built
+The Snowflake CLI (`snow`) uses `externalbrowser` authentication: it opens a
+browser, the user logs in via SSO, and the connector receives an ID token.
+On macOS, this token is cached in the system keychain so subsequent commands
+skip the browser. Inside the pippin sandbox (a Docker container running
+Linux), there is no browser and no keychain. Without intervention, every
+`snow` invocation would fail or hang trying to open a browser.
 
-The `snowflake` recipe in `src/cli/tools.ts` (`prepareSnowflake`):
+## How We Solve It
 
-1. Parses `~/.snowflake/config.toml` to find the default connection's
-   account, user, and authenticator.
-2. Reads the cached ID token from the macOS keychain via
-   `security find-generic-password`.
-3. Computes the SHA-256 hash key for the `FileTokenCache`.
-4. Generates a modified `config.toml` with
-   `client_store_temporary_credential = true` injected into each connection
-   section (required on Linux for the connector to read the file cache).
-5. Passes `SNOWFLAKE_ID_TOKEN` and `SNOWFLAKE_TOKEN_HASH_KEY` env vars to
-   the container entrypoint, which creates
-   `~/.cache/snowflake/credential_cache_v1.json`.
+At sandbox start time, pippin's `snowflake` tool recipe (`prepareSnowflake`
+in `src/cli/tools.ts`) bridges the macOS keychain to the Linux file-based
+credential cache:
 
-## Current Status
+1. **Parse config** -- Read `~/.snowflake/config.toml` to find the default
+   connection's `account`, `user`, and `authenticator`. Only proceed if the
+   authenticator is `externalbrowser`.
 
-**Everything is correctly wired up inside the container**, but `snow` still
-prompts for browser login. We haven't identified the exact remaining issue.
+2. **Extract the cached ID token from the macOS keychain** -- Use the Python
+   `keyring` module from `snow`'s own Python environment (found via the
+   `snow` binary's shebang). This is necessary because the macOS keychain
+   ACL only grants access to the application that stored the item. The
+   `security find-generic-password` CLI triggers an authorization dialog
+   that hangs in non-interactive contexts, but `snow`'s Python shares the
+   app identity that wrote the token and reads it without prompting.
 
-### What's Verified Working
+3. **Compute the hash key** -- The Snowflake Python connector's
+   `FileTokenCache` indexes tokens by `SHA-256(string_key)` where
+   `string_key = "USER:HOST:ID_TOKEN"` (all uppercased). Pippin computes
+   the same hash so the connector finds the token in the cache file.
 
-- **Config mount**: `/root/.snowflake/config.toml` contains the modified config
-  with `client_store_temporary_credential = true` (parsed correctly by
-  `tomllib` as Python `bool True`).
-- **Credential cache file**: `/root/.cache/snowflake/credential_cache_v1.json`
-  exists with correct hash key, permissions (0600), dir permissions (0700),
-  owner uid 0, euid 0.
-- **Hash key match**: Our computed hash matches `TokenKey.hash_key()` when
-  called with the correct arg order.
-- **FileTokenCache.retrieve()**: Successfully returns the token (371 chars)
-  when called directly from Python inside the container.
-- **Env vars**: `SNOWFLAKE_ID_TOKEN` and `SNOWFLAKE_TOKEN_HASH_KEY` are set.
-- **Token validity**: The token is not expired (works on the host).
+4. **Generate a modified config.toml** -- Inject
+   `client_store_temporary_credential = true` into each `[connections.*]`
+   section. On Linux the connector defaults this to `false`, so without it
+   the file cache is never consulted.
 
-### Remaining Mystery
+5. **Pass env vars to the container** -- `SNOWFLAKE_ID_TOKEN` (the raw
+   token) and `SNOWFLAKE_TOKEN_HASH_KEY` (the SHA-256 hex) are set in the
+   container environment. The modified config.toml is bind-mounted in place
+   of the original.
 
-Despite `FileTokenCache.retrieve()` returning the token when called directly,
-`snow sql` still falls through to browser auth. Possible causes to investigate:
+6. **Container bootstrap creates the cache file** -- The entrypoint script
+   in `sandbox.ts` writes
+   `~/.cache/snowflake/credential_cache_v1.json` with the format
+   `{"tokens":{"<hash>":"<token>"}}`, directory permissions 0700, file
+   permissions 0600.
 
-1. **The `snow` CLI may pass the connection dict to `snowflake.connector.connect()`
-   in a way that bypasses the connector's own `read_temporary_credentials()`.**
-   The CLI uses `get_connection_dict()` → `connect(**connection_parameters)`.
-   The connector's `__open_connection()` calls `auth.read_temporary_credentials()`
-   which checks `CLIENT_STORE_TEMPORARY_CREDENTIAL` in session_parameters. Need
-   to verify the parameter actually flows through to the session_parameters dict.
+When `snow sql` runs inside the container, the connector's
+`read_temporary_credentials()` finds the ID token in the file cache and
+uses `AuthByIdToken` -- no browser needed.
 
-2. **The `host` value the connector computes internally may differ from our
-   account-based computation.** The connector resolves `host` from `account`
-   via its own logic (adding `.snowflakecomputing.com`, handling privatelink,
-   etc.). If the internal `self.host` differs from what we use for the hash
-   key, the cache lookup succeeds in our test but fails in the real flow.
-   This is the most likely cause — need to check what `connection.host`
-   resolves to.
+## Why `security find-generic-password` Doesn't Work
 
-3. **TLS/proxy issues**: Leash does TLS MITM. We set `REQUESTS_CA_BUNDLE` and
-   `SSL_CERT_FILE`, but the connector's `ssl_wrap_socket.py` silently
-   swallows CA bundle load errors. A TLS failure would be a hard crash though,
-   not a browser prompt.
+The macOS keychain stores per-item access control lists (ACLs). When the
+Snowflake connector (via Python's `keyring`) stores a token, the ACL is
+scoped to the Python binary that wrote it. Running `security` (a different
+binary at `/usr/bin/security`) triggers a system authorization dialog
+asking the user to grant access. In a non-interactive context (like
+`spawnSync` inside pippin), this dialog can't be answered, so the call
+hangs until it times out.
 
-4. **Token format/encoding**: The token passes through shell `printf` in the
-   entrypoint. Characters like `+`, `/`, `=` in the base64 token could
-   theoretically be mangled, but our debug showed the token length matches.
+The fix is to use the same Python that `snow` uses. We find it by reading
+the shebang line of the `snow` binary (e.g.
+`/opt/homebrew/Cellar/snowflake-cli/3.15.0/libexec/bin/python`). This
+Python has `keyring` installed and its process identity matches the one
+that stored the credential, so macOS grants access silently.
 
-## Key Technical Details
+## The TokenKey Arg-Swap Bug in the Connector
 
-### Snowflake Connector Token Cache (Linux)
-
-- **Source**: `snowflake/connector/token_cache.py` (in the connector package)
-- **Cache path**: `$HOME/.cache/snowflake/credential_cache_v1.json`
-  - Lookup order: `SF_TEMPORARY_CREDENTIAL_CACHE_DIR` → `XDG_CACHE_HOME/snowflake/` → `HOME/.cache/snowflake/`
-- **Format**: `{"tokens": {"<sha256_hex>": "<token_value>"}}`
-- **Hash key**: SHA-256 of `"HOST:USER:ID_TOKEN"` (all uppercased)
-  - `TokenKey` dataclass: fields are `user, host, tokenType` (in that order)
-  - `string_key()` returns `f"{self.host.upper()}:{self.user.upper()}:{self.tokenType.value}"`
-- **Security**: Dir must be 0700, file must be 0600, both owned by euid
-- **Lock file**: `credential_cache_v1.json.lck` (directory-based lock, not a file)
-
-### Keychain Entry Format
-
-- **Service**: `USER:HOST:ID_TOKEN` (e.g. `MLAPORTE@COVEO.COM:COVEODEV.US-EAST-1.PRIVATELINK.SNOWFLAKECOMPUTING.COM:ID_TOKEN`)
-- **Account**: `HOST` (e.g. `COVEODEV.US-EAST-1.PRIVATELINK.SNOWFLAKECOMPUTING.COM`)
-- Read via: `security find-generic-password -s <service> -w`
-
-### Host Derivation
-
-Our code builds the host from the `account` field:
-```
-account = "coveodev.us-east-1.privatelink"
-→ host = "COVEODEV.US-EAST-1.PRIVATELINK.SNOWFLAKECOMPUTING.COM"
-```
-
-The connector's internal host resolution may differ — this is the most
-likely source of the mismatch. Check `connection.py` `_account_to_host()`
-or similar.
-
-### `client_store_temporary_credential` on Linux
-
-On Linux, the connector defaults this to `False` (line 253 of
-`connection.py`). On macOS/Windows it's forced to `True` regardless. Must be
-explicitly set for file-based caching to work:
+The Snowflake connector's `TokenKey` dataclass is defined as:
 
 ```python
-# connection.py line 1224-1227
+@dataclass(frozen=True)
+class TokenKey:
+    user: str
+    host: str
+    tokenType: TokenType
+```
+
+But `_auth.py` constructs it with swapped positional arguments:
+
+```python
+TokenKey(host, user, cred_type)  # host goes into self.user, user goes into self.host
+```
+
+So `string_key()`, which returns `f"{self.host}:{self.user}:{type}"`,
+actually produces `USER:HOST:ID_TOKEN` at runtime (not `HOST:USER:ID_TOKEN`
+as the field names suggest). The keychain service name and the file cache
+hash key both use this swapped format. Our code must match it.
+
+## File Cache Details
+
+| Property | Value |
+|---|---|
+| Cache path | `$HOME/.cache/snowflake/credential_cache_v1.json` |
+| Lookup order | `SF_TEMPORARY_CREDENTIAL_CACHE_DIR` > `XDG_CACHE_HOME/snowflake/` > `$HOME/.cache/snowflake/` |
+| File format | `{"tokens": {"<sha256_hex>": "<token_value>"}}` |
+| Hash input | `"USER:HOST:ID_TOKEN"` (uppercased), SHA-256, hex-encoded |
+| Dir permissions | 0700 |
+| File permissions | 0600 |
+| Owner | Must match euid |
+
+## Keychain Entry Format (macOS)
+
+| Field | Value |
+|---|---|
+| Service | `USER:HOST:ID_TOKEN` (e.g. `MLAPORTE@COVEO.COM:COVEODEV.US-EAST-1.PRIVATELINK.SNOWFLAKECOMPUTING.COM:ID_TOKEN`) |
+| Account | `HOST` (e.g. `COVEODEV.US-EAST-1.PRIVATELINK.SNOWFLAKECOMPUTING.COM`) |
+| Keychain | `~/Library/Keychains/login.keychain-db` |
+
+## Host Derivation
+
+The `account` field in config.toml (e.g. `coveodev.us-east-1.privatelink`)
+is converted to a host by appending `.SNOWFLAKECOMPUTING.COM` and
+uppercasing, unless it already contains that suffix.
+
+## `client_store_temporary_credential` on Linux
+
+On macOS and Windows, the connector forces this to `true` regardless of
+config. On Linux, it defaults to `false` (see `connection.py`):
+
+```python
 self._session_parameters[PARAMETER_CLIENT_STORE_TEMPORARY_CREDENTIAL] = (
     self._client_store_temporary_credential if IS_LINUX else True
 )
 ```
 
-### `snow` CLI Config Flow
+This is why we inject the setting into config.toml -- without it, the
+connector never calls `read_temporary_credentials()` and skips the file
+cache entirely.
 
-1. `snow sql` → `connect_to_snowflake()` in `snow_connector.py`
-2. `get_connection_dict(connection_name)` reads from `CONFIG_MANAGER`
-   (which reads `~/.snowflake/config.toml`)
-3. Connection dict passed as `**kwargs` to `snowflake.connector.connect()`
-4. Connector does NOT re-read config.toml — it uses the kwargs directly
-5. `SNOWFLAKE_CLIENT_STORE_TEMPORARY_CREDENTIAL` env var is a fallback
-   (only used if key not in connection dict)
+## Token Expiry
 
-### Relevant Source Files (in container's pipx venv)
+If the cached ID token expires, the connector falls back to
+`AuthByWebBrowser` via `reauthenticate()`, which will fail in the headless
+container. The user must re-authenticate on the host first (run
+`snow sql --query 'SELECT 1'` on macOS to refresh the keychain token),
+then restart the sandbox.
 
-All under `/root/.local/share/pipx/venvs/snowflake-cli-labs/lib/python3.13/site-packages/`:
+## Relevant Source Locations
 
-| File | Role |
-|------|------|
-| `snowflake/cli/_app/snow_connector.py` | Assembles connection params, calls `connector.connect()` |
-| `snowflake/cli/api/config.py` | Config parsing, `get_connection_dict()` |
-| `snowflake/connector/connection.py` | `__open_connection()`, authenticator selection |
-| `snowflake/connector/auth/_auth.py` | `read_temporary_credentials()`, `get_token_cache()` |
-| `snowflake/connector/auth/webbrowser.py` | `AuthByWebBrowser` — opens browser |
-| `snowflake/connector/auth/idtoken.py` | `AuthByIdToken` — uses cached token |
-| `snowflake/connector/token_cache.py` | `FileTokenCache`, `TokenKey`, hash computation |
-| `snowflake/connector/sf_dirs.py` | Config/cache directory resolution |
+**Pippin:**
+- `src/cli/tools.ts` -- `prepareSnowflake()`, `readKeychainViaSnowPython()`, `parseSimpleToml()`, `injectCredentialCacheSetting()`
+- `src/cli/sandbox.ts` -- Container bootstrap script that creates the credential cache file (around line 686)
 
-### Next Steps
+**Snowflake connector** (in the container's Python packages):
+- `snowflake/connector/auth/_auth.py` -- `read_temporary_credentials()`, `TokenKey` construction
+- `snowflake/connector/token_cache.py` -- `FileTokenCache`, `TokenKey` dataclass, hash computation
+- `snowflake/connector/connection.py` -- `__open_connection()`, authenticator selection, `client_store_temporary_credential` default
+- `snowflake/connector/auth/idtoken.py` -- `AuthByIdToken` (uses cached token)
+- `snowflake/connector/auth/webbrowser.py` -- `AuthByWebBrowser` (opens browser)
 
-1. **Check host resolution**: Run `snow` with debug logging to see what
-   `self.host` resolves to inside the connector. Compare with our hash key
-   computation. This is the most likely issue.
-   ```
-   pippin run "SNOWFLAKE_LOG_LEVEL=DEBUG snow sql --query 'SELECT 1' 2>&1 | grep -i 'host\|token\|cache\|credential\|id_token'"
-   ```
-
-2. **Alternative approach**: Instead of pre-populating the file cache, inject
-   the token via `SNOWFLAKE_TOKEN` env var and set
-   `SNOWFLAKE_AUTHENTICATOR=oauth` (or similar). This bypasses the cache
-   entirely but changes the auth flow.
-
-3. **Monkey-patch approach**: Write a tiny Python wrapper that patches
-   `Auth.read_temporary_credentials` to inject the token directly, then
-   delegates to `snow`. Heavy-handed but guaranteed to work.
+**Snowflake CLI:**
+- `snowflake/cli/_app/snow_connector.py` -- Assembles connection params, calls `connector.connect()`
+- `snowflake/cli/api/config.py` -- Config parsing, `get_connection_dict()`
