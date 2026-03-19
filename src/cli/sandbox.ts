@@ -198,8 +198,13 @@ async function startSandbox(
     }
   }
 
+  // Detect if the workspace is inside a Git worktree — if so, we need to
+  // mount the main repository so that Git commands inside the sandbox can
+  // access the shared object store, refs, and config.
+  const worktreeMainRepo = resolveWorktreeMainRepo(workspaceRoot)
+
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, resolvedImage, resolvedPolicy)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, worktreeMainRepo, resolvedImage, resolvedPolicy)
 
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
@@ -449,6 +454,71 @@ function resolveSshAgent(
 }
 
 /**
+ * Detect if the workspace root lives inside a Git worktree and return the
+ * path to the main repository root, or null if it's not a worktree.
+ *
+ * In a worktree the `.git` entry is a *file* (not a directory) containing:
+ *   gitdir: /path/to/main-repo/.git/worktrees/<name>
+ *
+ * Git commands need access to the main repository's `.git` directory (the
+ * shared object store, refs, etc.), so the caller should mount the main repo
+ * into the sandbox alongside the worktree.
+ *
+ * We walk up from `workspaceRoot` to find the `.git` entry, since the
+ * workspace root may be a subdirectory inside a worktree.
+ */
+function resolveWorktreeMainRepo(workspaceRoot: string): string | null {
+  // Walk up from workspaceRoot looking for a .git entry
+  let dir = path.resolve(workspaceRoot)
+  while (true) {
+    const dotGit = path.join(dir, '.git')
+    let stat: fs.Stats
+    try {
+      stat = fs.lstatSync(dotGit)
+    } catch {
+      // No .git here — keep walking up
+      const parent = path.dirname(dir)
+      if (parent === dir) return null
+      dir = parent
+      continue
+    }
+
+    if (stat.isDirectory()) {
+      // Regular repo — not a worktree
+      return null
+    }
+
+    if (stat.isFile()) {
+      // Worktree: .git is a file containing "gitdir: <path>"
+      const content = fs.readFileSync(dotGit, 'utf-8').trim()
+      const match = content.match(/^gitdir:\s*(.+)$/m)
+      if (!match) return null
+
+      // Resolve the gitdir path (may be relative to the worktree)
+      const gitdir = path.resolve(dir, match[1])
+
+      // Walk up from the gitdir to find the .git directory.
+      // e.g. gitdir = /repo/.git/worktrees/my-branch → .git dir = /repo/.git
+      //      → main repo root = /repo
+      let g = gitdir
+      while (g !== path.dirname(g)) {
+        if (path.basename(g) === '.git') {
+          const mainRepo = path.dirname(g)
+          // Only return if the main repo is a different directory
+          if (mainRepo !== path.resolve(workspaceRoot)) {
+            return mainRepo
+          }
+          return null
+        }
+        g = path.dirname(g)
+      }
+    }
+
+    return null
+  }
+}
+
+/**
  * Compute a deterministic fingerprint of the sandbox-relevant configuration.
  * Used to detect when the config has changed since the sandbox was started,
  * so we can auto-restart instead of silently running with stale settings.
@@ -515,6 +585,12 @@ function computeConfigHash(
   const toolReqs = resolveToolRequirements(tools)
   parts.push(`gpgAgent:${toolReqs.gpgAgent}`)
 
+  // Git worktree main repo mount (auto-detected)
+  const worktreeMainRepo = resolveWorktreeMainRepo(workspaceRoot)
+  if (worktreeMainRepo) {
+    parts.push(`worktree-main:${worktreeMainRepo}`)
+  }
+
   return crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)
 }
 
@@ -550,6 +626,7 @@ function buildLeashArgs(
   sshAgent: boolean,
   gpgAgent: boolean,
   dotfileOverrides: Map<string, string>,
+  worktreeMainRepo: string | null,
   image?: string,
   policy?: string,
 ): string[] {
@@ -612,6 +689,16 @@ function buildLeashArgs(
       ? `${expanded}:${containerPath}:ro`
       : `${expanded}:${containerPath}`
     args.push('-v', mountSpec)
+  }
+
+  // If the workspace is a Git worktree, mount the main repository so that
+  // Git commands can access the shared object store, refs, and config.
+  // Mount at the original host path (not remapped to /root) because the
+  // worktree's .git file contains an absolute gitdir reference to the host
+  // path, and leash mounts the workspace CWD at its original host path.
+  if (worktreeMainRepo && !mountedPaths.has(worktreeMainRepo)) {
+    mountedPaths.add(worktreeMainRepo)
+    args.push('-v', `${worktreeMainRepo}:${worktreeMainRepo}`)
   }
 
   // Set the pippin-server port and idle timeout via env

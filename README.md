@@ -300,6 +300,12 @@ Host *
 - Does not work with non-default SSH agents (1Password, gpg-agent, Secretive) since Docker Desktop proxies the macOS default launchd agent
 - Some Docker Desktop versions have intermittent bugs with the agent socket; restarting Docker Desktop usually resolves this
 
+### Git worktree support
+
+When your workspace is a [Git worktree](https://git-scm.com/docs/git-worktree), Pippin automatically detects it and mounts the main repository into the sandbox alongside the worktree directory. This is necessary because Git worktrees share the object store and refs with the main repository — without the main repo mounted, Git commands inside the sandbox would fail.
+
+Detection works by checking whether `.git` is a file (containing a `gitdir:` pointer) rather than a directory. Pippin walks up from the workspace root, so it works even when the workspace root is a subdirectory inside a worktree. No configuration is needed — it just works.
+
 ### Environment variable forwarding
 
 You can forward specific host environment variables into every sandbox. This is useful for tokens, credentials, or configuration that your build tools need.
@@ -353,7 +359,7 @@ when { resource in [Host::"github.com", Host::"*.npmjs.org", Host::"registry.npm
 
 ### Automatic restart on config changes
 
-Pippin tracks a fingerprint of the active sandbox configuration — covering the Docker image, Cedar policy (including file contents), dotfile mounts, workspace mounts, forwarded environment variables, tools, and SSH agent forwarding. When you change any of these settings and run your next command, Pippin detects the drift and automatically restarts the sandbox with the new configuration:
+Pippin tracks a fingerprint of the active sandbox configuration — covering the Docker image, Cedar policy (including file contents), dotfile mounts, workspace mounts, forwarded environment variables, tools, SSH agent forwarding, and Git worktree detection. When you change any of these settings and run your next command, Pippin detects the drift and automatically restarts the sandbox with the new configuration:
 
 ```
 $ pippin shell
