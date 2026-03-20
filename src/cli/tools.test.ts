@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveToolRequirements, RECIPES, KNOWN_TOOLS, _parseSimpleToml, _injectCredentialCacheSetting, _prepareSSH } from './tools'
+import { resolveToolRequirements, RECIPES, KNOWN_TOOLS, _parseSimpleToml, _injectCredentialCacheSetting, _prepareSSH, _discoverIdentityFiles, _ensureAgentHasKeys } from './tools'
 import { expandHome } from './config'
 
 describe('RECIPES', () => {
@@ -403,5 +403,48 @@ describe('SSH recipe', () => {
     const result = resolveToolRequirements(['ssh'])
     expect(result.hostPrepares).toHaveLength(1)
     expect(typeof result.hostPrepares[0]).toBe('function')
+  })
+})
+
+describe('discoverIdentityFiles', () => {
+  it('returns an array of strings', () => {
+    const result = _discoverIdentityFiles()
+    expect(Array.isArray(result)).toBe(true)
+    for (const item of result) {
+      expect(typeof item).toBe('string')
+    }
+  })
+
+  it('always includes well-known default key paths', () => {
+    const result = _discoverIdentityFiles()
+    const home = process.env.HOME || '/root'
+    const expected = [
+      `${home}/.ssh/id_rsa`,
+      `${home}/.ssh/id_ecdsa`,
+      `${home}/.ssh/id_ecdsa_sk`,
+      `${home}/.ssh/id_ed25519`,
+      `${home}/.ssh/id_ed25519_sk`,
+    ]
+    for (const keyPath of expected) {
+      expect(result).toContain(keyPath)
+    }
+  })
+
+  it('returns deduplicated paths', () => {
+    const result = _discoverIdentityFiles()
+    const unique = new Set(result)
+    expect(result.length).toBe(unique.size)
+  })
+})
+
+describe('ensureAgentHasKeys', () => {
+  it('is a callable function', () => {
+    expect(typeof _ensureAgentHasKeys).toBe('function')
+  })
+
+  it('does not throw on any platform', () => {
+    // ensureAgentHasKeys should be safe to call — it skips on non-macOS
+    // and wraps all I/O in try/catch
+    expect(() => _ensureAgentHasKeys()).not.toThrow()
   })
 })

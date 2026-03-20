@@ -38,7 +38,41 @@ connects to the forwarded agent socket. The agent — running on the
 host — performs the cryptographic signing using the private key. The
 container only sees the signed challenge response, never the key itself.
 
-### 2. SSH Config and Known Hosts
+### 2. Automatic Key Loading
+
+SSH on macOS can authenticate by reading private key files directly
+from `~/.ssh/` — the keys don't need to be loaded into the SSH agent.
+Inside the container, however, key files are intentionally not mounted
+(to prevent exfiltration), so only the forwarded agent path works. If
+the agent is empty, SSH operations inside the sandbox fail with
+"Permission denied (publickey)".
+
+Pippin bridges this gap automatically. At sandbox start, the `ssh`
+tool recipe's host-side prepare step:
+
+1. Discovers candidate identity files by parsing `~/.ssh/config` for
+   `IdentityFile` directives and checking the well-known default paths
+   (`id_rsa`, `id_ecdsa`, `id_ed25519`, `id_ecdsa_sk`, `id_ed25519_sk`).
+2. Queries the running SSH agent (`ssh-add -l`) to see which keys are
+   already loaded.
+3. For each key that exists on disk but is missing from the agent, runs
+   `ssh-add --apple-use-keychain <path>` to load it. The
+   `--apple-use-keychain` flag retrieves the passphrase from the macOS
+   Keychain if it was stored there; for passphrase-less keys it is
+   harmless.
+
+This is logged to stderr:
+
+```
+pippin: added /Users/you/.ssh/id_rsa to SSH agent
+```
+
+If `ssh-add` fails for a particular key (e.g. passphrase not in the
+Keychain and no TTY available for interactive prompting), that key is
+silently skipped. You can always load keys manually with `ssh-add`
+before starting the sandbox.
+
+### 3. SSH Config and Known Hosts
 
 The `ssh` recipe mounts two files read-only:
 
@@ -49,7 +83,7 @@ The `ssh` recipe mounts two files read-only:
   doesn't prompt for host key verification in the non-interactive
   container.
 
-### 3. macOS SSH Config Sanitization
+### 4. macOS SSH Config Sanitization
 
 macOS's default `~/.ssh/config` commonly includes Apple-specific
 options:
@@ -173,6 +207,7 @@ Agent forwarding is a deliberate security choice:
 | Env var | `SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock` |
 | Mounted files | `~/.ssh/config` (readonly, sanitized), `~/.ssh/known_hosts` (readonly) |
 | Sanitization | Prepends `IgnoreUnknown UseKeychain,AddKeysToAgent` if macOS options detected |
+| Auto key loading | Runs `ssh-add --apple-use-keychain` for identity files found in `~/.ssh/config` and well-known defaults |
 
 ## Reference — GPG
 
@@ -193,7 +228,7 @@ Agent forwarding is a deliberate security choice:
 ## Relevant Source Locations
 
 **Pippin:**
-- `src/cli/tools.ts` — `git` recipe (line 359), `ssh` recipe (line 418), `prepareSSH()` (line 322)
+- `src/cli/tools.ts` — `git` recipe (line 489), `ssh` recipe (line 547), `prepareSSH()` (line 451), `ensureAgentHasKeys()` (line 375), `discoverIdentityFiles()` (line 330)
 - `src/cli/sandbox.ts` — SSH agent socket mount (line 628), GPG agent socket mount (line 649), `known_hosts` auto-mount (line 636)
 
 **OpenSSH:**

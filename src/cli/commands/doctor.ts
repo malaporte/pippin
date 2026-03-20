@@ -197,15 +197,29 @@ function checkWorkspace(): CheckResult[] {
     }
   }
 
-  // Check SSH agent socket if enabled
-  const sshAgent = config.sandbox?.ssh_agent ?? globalConfig.sshAgent
+  // Check SSH agent socket if enabled (either explicitly or via tool recipes)
+  const explicitSshAgent = config.sandbox?.ssh_agent ?? globalConfig.sshAgent
+  const workspaceTools = config.sandbox?.tools ?? []
+  const allTools = [...new Set([...globalConfig.tools, ...workspaceTools])]
+  const toolReqs = resolveToolRequirements(allTools)
+  const sshAgent = explicitSshAgent || toolReqs.sshAgent
+
   if (sshAgent) {
     if (os.platform() !== 'darwin') {
       results.push(fail('SSH agent', 'sshAgent is enabled but only works on macOS with Docker Desktop'))
     } else {
-      // We can't check the socket directly since it lives inside the Docker Desktop VM,
-      // but we can check if Docker Desktop is the runtime
-      results.push(pass('SSH agent', 'enabled'))
+      // Check if the agent actually has keys loaded
+      const listResult = spawnSync('ssh-add', ['-l'], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      if (listResult.status === 0 && listResult.stdout?.trim()) {
+        const keyCount = listResult.stdout.trim().split('\n').length
+        results.push(pass('SSH agent', `enabled, ${keyCount} key${keyCount !== 1 ? 's' : ''} loaded`))
+      } else {
+        results.push(fail('SSH agent', 'enabled but no keys loaded — pippin will auto-add keys at sandbox start, or run `ssh-add` manually'))
+      }
     }
   }
 

@@ -311,6 +311,135 @@ function injectCredentialCacheSetting(content: string): string {
 
 // --- SSH host-side preparation ---
 
+/** Well-known default identity file basenames that OpenSSH tries automatically. */
+const DEFAULT_KEY_BASENAMES = [
+  'id_rsa',
+  'id_ecdsa',
+  'id_ecdsa_sk',
+  'id_ed25519',
+  'id_ed25519_sk',
+]
+
+/**
+ * Collect candidate SSH identity file paths from ~/.ssh/config IdentityFile
+ * directives and the well-known default key basenames.
+ *
+ * Returns deduplicated, expanded absolute paths (~ resolved).
+ * Does NOT check whether the files exist on disk — the caller should filter.
+ */
+export function discoverIdentityFiles(): string[] {
+  const candidates = new Set<string>()
+
+  // 1. Parse ~/.ssh/config for IdentityFile directives
+  const configPath = expandHome('~/.ssh/config')
+  try {
+    const content = fs.readFileSync(configPath, 'utf-8')
+    for (const line of content.split('\n')) {
+      const match = line.match(/^\s*IdentityFile\s+(.+)/i)
+      if (match) {
+        const raw = match[1].trim()
+        // Expand ~ and resolve to an absolute path
+        const expanded = raw.startsWith('~') ? expandHome(raw) : path.resolve(raw)
+        candidates.add(expanded)
+      }
+    }
+  } catch {
+    // No config or unreadable — continue with defaults only
+  }
+
+  // 2. Add well-known default key paths
+  const sshDir = expandHome('~/.ssh')
+  for (const basename of DEFAULT_KEY_BASENAMES) {
+    candidates.add(path.join(sshDir, basename))
+  }
+
+  return Array.from(candidates)
+}
+
+/**
+ * Ensure the macOS SSH agent has at least one key loaded.
+ *
+ * Docker Desktop for Mac forwards the host's launchd SSH agent into containers
+ * via /run/host-services/ssh-auth.sock.  If the user's keys are passphrase-less
+ * (or passphrase-protected but stored in the macOS Keychain), SSH on the host
+ * works by reading key files directly — without the agent ever holding the key.
+ * Inside the container, key files are intentionally not mounted (security), so
+ * only the agent path works.
+ *
+ * This function bridges that gap: it discovers identity files that exist on the
+ * host, checks whether the agent already has keys, and runs `ssh-add` for any
+ * missing ones so that the forwarded agent inside the container can serve them.
+ *
+ * Only runs on macOS.  Failures are non-fatal — logged to stderr and skipped.
+ */
+export function ensureAgentHasKeys(): void {
+  if (os.platform() !== 'darwin') return
+
+  // Discover candidate key files and filter to those that exist on disk.
+  // Only consider the private key file (not the .pub companion).
+  const existing = discoverIdentityFiles().filter(p => {
+    try { return fs.statSync(p).isFile() } catch { return false }
+  })
+
+  if (existing.length === 0) return
+
+  // Ask the agent what it already holds — parse fingerprints from `ssh-add -l`.
+  // Output lines look like: "256 SHA256:abc123... user@host (ED25519)"
+  const listResult = spawnSync('ssh-add', ['-l'], {
+    encoding: 'utf-8',
+    timeout: 5_000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  // Collect fingerprints of keys the agent already has
+  const loadedFingerprints = new Set<string>()
+  if (listResult.status === 0 && listResult.stdout) {
+    for (const line of listResult.stdout.trim().split('\n')) {
+      // Extract the SHA256:... fingerprint (second field)
+      const parts = line.split(/\s+/)
+      if (parts.length >= 2 && parts[1].startsWith('SHA256:')) {
+        loadedFingerprints.add(parts[1])
+      }
+    }
+  }
+
+  // For each candidate key, compute its fingerprint and add it if missing
+  for (const keyPath of existing) {
+    try {
+      // Get fingerprint of this key file
+      const fpResult = spawnSync('ssh-keygen', ['-l', '-f', keyPath], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      if (fpResult.status !== 0) continue
+
+      const fpParts = (fpResult.stdout || '').trim().split(/\s+/)
+      const fingerprint = fpParts.length >= 2 ? fpParts[1] : ''
+      if (fingerprint && loadedFingerprints.has(fingerprint)) continue
+
+      // Key exists on disk but is not in the agent — add it.
+      // On macOS, --apple-use-keychain retrieves the passphrase from the
+      // Keychain if it was stored there (common when UseKeychain is enabled).
+      // For passphrase-less keys it is harmless.
+      const addResult = spawnSync('ssh-add', ['--apple-use-keychain', keyPath], {
+        encoding: 'utf-8',
+        timeout: 10_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      if (addResult.status === 0) {
+        process.stderr.write(`pippin: added ${keyPath} to SSH agent\n`)
+        // Record the fingerprint so we don't try to add it again
+        if (fingerprint) loadedFingerprints.add(fingerprint)
+      }
+      // If ssh-add fails (e.g. passphrase not in Keychain and no TTY), skip silently
+    } catch {
+      // Individual key failure — continue with the rest
+    }
+  }
+}
+
 /**
  * Sanitize ~/.ssh/config for use inside a Linux container.
  *
@@ -354,7 +483,7 @@ function prepareSSH(_shellEnv: Record<string, string>): HostPrepareResult | unde
 }
 
 // Exported for testing
-export { parseSimpleToml as _parseSimpleToml, injectCredentialCacheSetting as _injectCredentialCacheSetting, prepareSSH as _prepareSSH }
+export { parseSimpleToml as _parseSimpleToml, injectCredentialCacheSetting as _injectCredentialCacheSetting, prepareSSH as _prepareSSH, discoverIdentityFiles as _discoverIdentityFiles, ensureAgentHasKeys as _ensureAgentHasKeys }
 
 export const RECIPES: Record<string, ToolRecipe> = {
   git: {
@@ -422,7 +551,13 @@ export const RECIPES: Record<string, ToolRecipe> = {
       { path: '~/.ssh/known_hosts', readonly: true },
     ],
     sshAgent: true,
-    hostPrepare: prepareSSH,
+    hostPrepare: (shellEnv) => {
+      // Ensure the macOS SSH agent has keys loaded before we start the
+      // container — Docker Desktop forwards this agent, so it must hold
+      // the keys for SSH to work inside the sandbox.
+      ensureAgentHasKeys()
+      return prepareSSH(shellEnv)
+    },
   },
   codex: {
     name: 'OpenAI Codex',
