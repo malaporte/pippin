@@ -89,6 +89,14 @@ switch (firstArg) {
     break
   }
 
+  case 'codex':
+  case 'copilot': {
+    const toolArgs = args.slice(1)
+    const cmd = toolArgs.length > 0 ? `${firstArg} ${toolArgs.join(' ')}` : firstArg
+    await execCommand(cmd)
+    break
+  }
+
   case '--help':
   case '-h': {
     printUsage()
@@ -118,6 +126,8 @@ function printUsage(): void {
   process.stderr.write(
     `usage: pippin run <command>       run a command in the sandbox
        pippin shell               open an interactive shell in the sandbox
+       pippin codex [args]        run OpenAI Codex CLI in the sandbox
+       pippin copilot [args]      run GitHub Copilot CLI in the sandbox
        pippin init                create .pippin.toml in the current directory
        pippin status [--all]      show sandbox status
        pippin stop [--all]        stop sandbox(es)
