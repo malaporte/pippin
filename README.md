@@ -164,7 +164,7 @@ Dotfiles are mounted into every sandbox so your shell environment and git config
 
 ### Custom Docker image
 
-By default, sandboxes use the standard leash coder image. You can override this with a pre-built image or a local Dockerfile, at either the global or workspace level.
+By default, sandboxes build and use Pippin's bundled sandbox image. You can override this with a pre-built image or a local Dockerfile, at either the global or workspace level.
 
 **Pre-built image** — set `image` to any Docker image reference:
 
@@ -194,7 +194,7 @@ dockerfile = "./Dockerfile.pippin"
 
 When a Dockerfile is used, Pippin builds the image locally and tags it by content hash (`pippin-custom:<sha256>`). The build is skipped on subsequent runs unless the Dockerfile changes.
 
-**Priority**: workspace `image` > workspace `dockerfile` > global `image` > global `dockerfile`. If nothing is configured, leash uses its default image.
+**Priority**: workspace `image` > workspace `dockerfile` > global `image` > global `dockerfile` > bundled default Dockerfile.
 
 ### Tools
 

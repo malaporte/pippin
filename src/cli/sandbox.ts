@@ -20,12 +20,17 @@ import {
 import { Spinner } from './spinner'
 import { resolvePolicy } from './policy'
 import { resolveToolRequirements } from './tools'
+import { DEFAULT_SANDBOX_DOCKERFILE } from './default-dockerfile'
 import type { WorkspaceConfig, MountEntry, SandboxState, DotfileEntry } from '../shared/types'
 
 const LEASH_CODER_IMAGE = 'public.ecr.aws/s5i7k8t3/strongdm/coder'
 const LEASH_IMAGE = 'public.ecr.aws/s5i7k8t3/strongdm/leash'
 const HEALTH_MAX_ATTEMPTS = 60
 const HEALTH_INTERVAL_MS = 1000
+
+type DockerfileBuildSource =
+  | { kind: 'path'; dockerfilePath: string }
+  | { kind: 'inline'; dockerfileText: string; label?: string }
 
 /**
  * Ensure a sandbox is running for the given workspace. Starts one if needed.
@@ -373,7 +378,7 @@ export async function stopAllSandboxes(): Promise<void> {
  *   2. workspace sandbox.dockerfile  (built into a tagged image)
  *   3. global image
  *   4. global dockerfile             (built into a tagged image)
- *   5. undefined  → leash uses its default image
+ *   5. bundled default dockerfile  (built into a tagged image)
  */
 function resolveImage(
   workspaceRoot: string,
@@ -388,7 +393,7 @@ function resolveImage(
   // Workspace-level dockerfile
   if (workspaceConfig.sandbox?.dockerfile) {
     const dockerfilePath = path.resolve(workspaceRoot, expandHome(workspaceConfig.sandbox.dockerfile))
-    return buildDockerImage(dockerfilePath)
+    return buildDockerImage({ kind: 'path', dockerfilePath })
   }
 
   // Global-level image
@@ -399,10 +404,14 @@ function resolveImage(
   // Global-level dockerfile
   if (globalConfig.dockerfile) {
     const dockerfilePath = path.resolve(expandHome(globalConfig.dockerfile))
-    return buildDockerImage(dockerfilePath)
+    return buildDockerImage({ kind: 'path', dockerfilePath })
   }
 
-  return undefined
+  return buildDockerImage({
+    kind: 'inline',
+    dockerfileText: DEFAULT_SANDBOX_DOCKERFILE,
+    label: 'bundled default sandbox image',
+  })
 }
 
 /**
@@ -410,14 +419,30 @@ function resolveImage(
  * Skips the build if an image with the same hash tag already exists.
  * Returns the image tag string.
  */
-function buildDockerImage(dockerfilePath: string): string {
-  if (!fs.existsSync(dockerfilePath)) {
-    process.stderr.write(`pippin: dockerfile not found: ${dockerfilePath}\n`)
-    process.exit(1)
+function buildDockerImage(source: DockerfileBuildSource): string {
+  let content: Buffer
+  let dockerfilePath: string
+  let context: string
+  let cleanupDir: string | undefined
+
+  if (source.kind === 'path') {
+    if (!fs.existsSync(source.dockerfilePath)) {
+      process.stderr.write(`pippin: dockerfile not found: ${source.dockerfilePath}\n`)
+      process.exit(1)
+    }
+
+    dockerfilePath = source.dockerfilePath
+    content = fs.readFileSync(dockerfilePath)
+    context = path.dirname(dockerfilePath)
+  } else {
+    content = Buffer.from(source.dockerfileText, 'utf-8')
+    cleanupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pippin-dockerfile-'))
+    dockerfilePath = path.join(cleanupDir, 'Dockerfile')
+    fs.writeFileSync(dockerfilePath, content)
+    context = cleanupDir
   }
 
   // Compute a content hash of the Dockerfile
-  const content = fs.readFileSync(dockerfilePath)
   const hash = crypto.createHash('sha256').update(content).digest('hex').slice(0, 12)
   const tag = `pippin-custom:${hash}`
 
@@ -433,21 +458,28 @@ function buildDockerImage(dockerfilePath: string): string {
     return tag
   }
 
-  // Build the image
-  const context = path.dirname(dockerfilePath)
-  const spinner = new Spinner('building custom sandbox image')
+  const spinner = new Spinner(source.kind === 'inline'
+    ? (source.label ?? 'building bundled sandbox image')
+    : 'building custom sandbox image')
   spinner.start()
 
-  const build = spawnSync('docker', ['build', '-t', tag, '-f', dockerfilePath, context], {
-    encoding: 'utf-8',
-    timeout: 300_000, // 5 minute timeout for builds
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-
-  spinner.stop()
+  const build = (() => {
+    try {
+      return spawnSync('docker', ['build', '-t', tag, '-f', dockerfilePath, context], {
+        encoding: 'utf-8',
+        timeout: 300_000, // 5 minute timeout for builds
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    } finally {
+      spinner.stop()
+      if (cleanupDir) {
+        fs.rmSync(cleanupDir, { recursive: true, force: true })
+      }
+    }
+  })()
 
   if (build.status !== 0) {
-    process.stderr.write(`pippin: failed to build custom sandbox image\n`)
+    process.stderr.write(`pippin: failed to build ${source.kind === 'inline' ? 'bundled sandbox image' : 'custom sandbox image'}\n`)
     if (build.stderr?.trim()) {
       process.stderr.write(build.stderr)
     }
@@ -948,6 +980,12 @@ function getShellEnv(): Record<string, string> {
   } catch {
     return { ...process.env } as Record<string, string>
   }
+}
+
+export const __test__ = {
+  resolveImage,
+  buildDockerImage,
+  computeConfigHash,
 }
 
 function sleep(ms: number): Promise<void> {

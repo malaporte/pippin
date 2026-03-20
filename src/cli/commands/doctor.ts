@@ -212,6 +212,32 @@ function checkWorkspace(): CheckResult[] {
   return results
 }
 
+function checkSandboxImageSelection(): CheckResult {
+  const globalConfig = readGlobalConfig()
+  const workspace = findWorkspace(process.cwd())
+  const sandbox = workspace?.config.sandbox
+
+  if (sandbox?.image) {
+    return pass('Sandbox image', `workspace image ${sandbox.image}`)
+  }
+
+  if (sandbox?.dockerfile) {
+    const resolved = path.resolve(workspace!.root, expandHome(sandbox.dockerfile))
+    return pass('Sandbox image', `workspace dockerfile ${resolved}`)
+  }
+
+  if (globalConfig.image) {
+    return pass('Sandbox image', `global image ${globalConfig.image}`)
+  }
+
+  if (globalConfig.dockerfile) {
+    const resolved = path.resolve(expandHome(globalConfig.dockerfile))
+    return pass('Sandbox image', `global dockerfile ${resolved}`)
+  }
+
+  return pass('Sandbox image', 'using bundled default sandbox image')
+}
+
 function checkTools(): CheckResult[] {
   const results: CheckResult[] = []
   const globalConfig = readGlobalConfig()
@@ -308,6 +334,7 @@ export function doctorCommand(): void {
   // Config validation
   results.push(...checkGlobalConfig())
   results.push(...checkWorkspace())
+  results.push(checkSandboxImageSelection())
 
   // Tool recipe validation
   results.push(...checkTools())
@@ -326,4 +353,8 @@ export function doctorCommand(): void {
   } else {
     process.stderr.write(kleur.green('all checks passed\n'))
   }
+}
+
+export const __test__ = {
+  checkSandboxImageSelection,
 }

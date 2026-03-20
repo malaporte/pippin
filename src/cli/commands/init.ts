@@ -10,10 +10,10 @@ const TEMPLATE = `# Pippin sandbox configuration
 # Cedar policy file for sandbox enforcement (restricts commands, file access, network):
 # policy = "sandbox.cedar"
 
-# Use a custom Docker image for the sandbox:
+# Use a custom Docker image for the sandbox instead of Pippin's bundled default:
 # image = "my-registry/my-image:latest"
 
-# Or build a local Dockerfile for the sandbox:
+# Or build a local Dockerfile for the sandbox instead of the bundled default:
 # dockerfile = "./Dockerfile.pippin"
 
 # Mount additional paths into the sandbox:
