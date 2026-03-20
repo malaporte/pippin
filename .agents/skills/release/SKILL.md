@@ -103,16 +103,7 @@ git add package.json
 git commit -m "chore: bump version to v{new_version}"
 ```
 
-### Step 7: Deploy Locally
-
-Build and deploy the CLI binary to `~/.local/bin/pippin` so the developer's
-local install is up to date:
-
-```bash
-bun run deploy:cli
-```
-
-### Step 8: Create the Git Tag
+### Step 7: Create the Git Tag
 
 Check that the tag does not already exist:
 
@@ -128,13 +119,13 @@ Otherwise create the tag:
 git tag v{new_version}
 ```
 
-### Step 9: Push Commit and Tag
+### Step 8: Push Commit and Tag
 
 ```bash
 git push && git push --tags
 ```
 
-### Step 10: Confirm
+### Step 9: Confirm
 
 Report success:
 
