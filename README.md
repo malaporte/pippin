@@ -221,6 +221,8 @@ Tools from both configs are merged (union). The following tools have built-in re
 | `snowflake` | Mounts `~/.snowflake/config.toml` (readonly). Extracts cached ID token from macOS keychain for `externalbrowser` auth. |
 | `npm` | Mounts `~/.npmrc` (readonly). Forwards `NPM_TOKEN` and `NPM_CONFIG_REGISTRY`. |
 | `ssh` | Mounts `~/.ssh/config` and `~/.ssh/known_hosts` (readonly). Enables SSH agent. Sanitizes macOS-specific options (`UseKeychain`, `AddKeysToAgent`) for Linux compatibility. |
+| `codex` | Mounts `~/.codex/config.toml` and `~/.codex/auth.json` (readonly). Forwards `OPENAI_API_KEY`. |
+| `copilot` | Mounts `~/.copilot/config.json` (readonly). Resolves `COPILOT_GITHUB_TOKEN` via `gh auth token`. Forwards `GH_TOKEN` and `GITHUB_TOKEN`. |
 
 All credential files are mounted **read-only** — the sandbox never modifies your host credentials.
 

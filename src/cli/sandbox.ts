@@ -259,6 +259,27 @@ async function startSandbox(
     if (stderr.trim()) {
       process.stderr.write(stderr)
     }
+
+    // Show the in-container server log if available — this is the primary
+    // diagnostic when pippin-server crashes silently inside the sandbox.
+    // Try reading docker logs from the target container first, then fall
+    // back to the host-side share directory log file.
+    try {
+      const result = spawnSync('docker', ['logs', '--tail', '50', 'pippin'], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      const dockerLog = [result.stdout, result.stderr].filter(Boolean).join('').trim()
+      if (dockerLog) {
+        process.stderr.write(`\n--- container log (docker logs pippin) ---\n`)
+        process.stderr.write(dockerLog + '\n')
+        process.stderr.write('--- end container log ---\n')
+      }
+    } catch {
+      // Container may already be removed
+    }
+
     process.exit(1)
   }
 
@@ -766,6 +787,10 @@ function buildLeashArgs(
     `export AWS_CA_BUNDLE=${COMBINED_CA}`,
     `export REQUESTS_CA_BUNDLE=${COMBINED_CA}`,
     `export NODE_EXTRA_CA_CERTS=${COMBINED_CA}`,
+    // Install the leash MITM CA into the system certificate store so that
+    // native binaries using the OS trust store (e.g. GitHub Copilot CLI)
+    // also trust connections proxied through leash.
+    `if [ -f /leash/ca-cert.pem ] && command -v update-ca-certificates >/dev/null 2>&1; then cp /leash/ca-cert.pem /usr/local/share/ca-certificates/leash-mitm.crt && update-ca-certificates >/dev/null 2>&1; fi`,
     // If the Snowflake recipe injected a cached ID token, create the
     // file-based credential cache that the Python connector reads on Linux.
     // The cache dir must be 0700 and the file 0600 for the connector to

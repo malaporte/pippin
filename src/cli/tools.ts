@@ -424,6 +424,39 @@ export const RECIPES: Record<string, ToolRecipe> = {
     sshAgent: true,
     hostPrepare: prepareSSH,
   },
+  codex: {
+    name: 'OpenAI Codex',
+    // Mount the user-level config (model, provider, approval policy, sandbox settings)
+    // and the cached auth token file. auth.json only exists when the user has configured
+    // cli_auth_credentials_store = "file" or when the OS keychain is unavailable.
+    // If it doesn't exist on the host, the mount is silently skipped.
+    dotfiles: [
+      { path: '~/.codex/config.toml', readonly: true },
+      { path: '~/.codex/auth.json', readonly: true },
+    ],
+    // OPENAI_API_KEY is the standard API-key auth path. Users who authenticate via
+    // `codex login` with file-based credential storage get auth.json mounted instead.
+    environment: ['OPENAI_API_KEY'],
+  },
+  copilot: {
+    name: 'GitHub Copilot CLI',
+    // Mount the Copilot CLI config (trusted folders, settings). On headless systems
+    // this file may also contain a plaintext token fallback, but we prefer env vars.
+    dotfiles: [
+      { path: '~/.copilot/config.json', readonly: true },
+    ],
+    // Copilot CLI checks tokens in priority order: COPILOT_GITHUB_TOKEN > GH_TOKEN >
+    // GITHUB_TOKEN > keychain > gh auth fallback. We forward all three env vars so
+    // any existing host-side token is available inside the container.
+    environment: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
+    // If COPILOT_GITHUB_TOKEN is not already set, resolve it from the GitHub CLI's
+    // credential store. This mirrors the gh recipe's approach: extract the token on
+    // the host (where the keychain is accessible) and inject it at the highest
+    // priority level so Copilot CLI uses it without needing its own keychain access.
+    envResolvers: {
+      COPILOT_GITHUB_TOKEN: 'gh auth token',
+    },
+  },
 }
 
 /** All known tool names (for validation in doctor, init, etc.) */

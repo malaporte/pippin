@@ -227,6 +227,63 @@ describe('resolveToolRequirements', () => {
     const result = resolveToolRequirements(['git', 'gh', 'aws'])
     expect(result.hostPrepares).toHaveLength(0)
   })
+
+  it('resolves codex tool with dotfiles and env vars', () => {
+    const result = resolveToolRequirements(['codex'])
+    expect(result.dotfiles).toHaveLength(2)
+    expect(result.dotfiles[0].path).toBe('~/.codex/config.toml')
+    expect(result.dotfiles[0].readonly).toBe(true)
+    expect(result.dotfiles[1].path).toBe('~/.codex/auth.json')
+    expect(result.dotfiles[1].readonly).toBe(true)
+    expect(result.environment).toContain('OPENAI_API_KEY')
+    expect(result.environment).toHaveLength(1)
+    expect(result.sshAgent).toBe(false)
+    expect(result.gpgAgent).toBe(false)
+    expect(result.envResolvers).toEqual({})
+    expect(result.envMultiResolvers).toEqual([])
+    expect(result.warnings).toEqual([])
+  })
+
+  it('resolves copilot tool with dotfiles, env vars, and envResolver', () => {
+    const result = resolveToolRequirements(['copilot'])
+    expect(result.dotfiles).toHaveLength(1)
+    expect(result.dotfiles[0].path).toBe('~/.copilot/config.json')
+    expect(result.dotfiles[0].readonly).toBe(true)
+    expect(result.environment).toContain('COPILOT_GITHUB_TOKEN')
+    expect(result.environment).toContain('GH_TOKEN')
+    expect(result.environment).toContain('GITHUB_TOKEN')
+    expect(result.environment).toHaveLength(3)
+    expect(result.envResolvers).toEqual({ COPILOT_GITHUB_TOKEN: 'gh auth token' })
+    expect(result.sshAgent).toBe(false)
+    expect(result.gpgAgent).toBe(false)
+    expect(result.warnings).toEqual([])
+  })
+
+  it('copilot envResolver does not override gh envResolver for GH_TOKEN', () => {
+    // gh defines GH_TOKEN resolver, copilot defines COPILOT_GITHUB_TOKEN resolver
+    // They use different env var names so there should be no conflict
+    const result = resolveToolRequirements(['gh', 'copilot'])
+    expect(result.envResolvers).toEqual({
+      GH_TOKEN: 'gh auth token',
+      COPILOT_GITHUB_TOKEN: 'gh auth token',
+    })
+  })
+
+  it('merges codex and copilot with other tools without duplicates', () => {
+    const result = resolveToolRequirements(['git', 'gh', 'codex', 'copilot'])
+    const paths = result.dotfiles.map((d) => d.path)
+    // git: 5 dotfiles, gh: 1, codex: 2, copilot: 1 = 9 total (no overlap)
+    expect(result.dotfiles).toHaveLength(9)
+    expect(paths).toContain('~/.codex/config.toml')
+    expect(paths).toContain('~/.codex/auth.json')
+    expect(paths).toContain('~/.copilot/config.json')
+    // Environment: gh(GITHUB_TOKEN, GH_TOKEN) + codex(OPENAI_API_KEY) + copilot(COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN)
+    // GH_TOKEN and GITHUB_TOKEN are deduplicated
+    expect(result.environment).toContain('OPENAI_API_KEY')
+    expect(result.environment).toContain('COPILOT_GITHUB_TOKEN')
+    const envSet = new Set(result.environment)
+    expect(envSet.size).toBe(result.environment.length) // no duplicates
+  })
 })
 
 describe('parseSimpleToml', () => {

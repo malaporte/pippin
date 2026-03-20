@@ -36,7 +36,7 @@ const TEMPLATE = `# Pippin sandbox configuration
 
 # Tools to auto-configure in the sandbox. Pippin mounts credentials,
 # forwards env vars, and enables SSH agent as needed for each tool.
-# Supported: git, gh, aws, snowflake, npm, ssh
+# Supported: git, gh, aws, snowflake, npm, ssh, codex, copilot
 # tools = ["git"]
 `
 
