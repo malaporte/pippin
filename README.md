@@ -16,11 +16,13 @@ Pippin automatically launches a Docker container for your project the first time
 
 ## Why
 
-AI coding agents — Claude Code, Codex, OpenCode — can run arbitrary shell commands on your machine with your full user permissions. That means package installs with postinstall scripts, builds that execute arbitrary code, file modifications outside the project directory, and network requests to unknown endpoints — all without any isolation. These agents are also vulnerable to prompt injection: malicious instructions hidden in code comments, README files, or web content can trick an agent into running commands it shouldn't. Pippin gives you two ways to contain the blast radius:
+AI coding agents — Claude Code, Codex, OpenCode — can run arbitrary shell commands on your machine with your full user permissions. That means package installs with postinstall scripts, builds that execute arbitrary code, file modifications outside the project directory, and network requests to unknown endpoints — all without any isolation. These agents are also vulnerable to prompt injection: malicious instructions hidden in code comments, README files, or web content can trick an agent into running commands it shouldn't. Pippin gives you three ways to contain the blast radius:
 
 1. **Run the agent itself inside a sandbox.** Start the agent with `pippin run` and everything it does — file edits, shell commands, package installs — stays inside the container.
 
 2. **Route agent commands through the sandbox.** For a better user experience, keep the agent on the host but configure it to prefix shell commands with `pippin run`. The agent can still read your code, but execution happens in an isolated container. This currently requires a patched agent — see [nopecode](https://github.com/malaporte/nopecode), a prototype fork of OpenCode with Pippin integration. Codex is also open-source and patchable in the same way.
+
+3. **Use a dedicated agent command.** `pippin codex` and `pippin copilot` run the respective CLI agents fully inside the sandbox with credentials automatically wired up — no patching required.
 
 Either way, you get [Cedar](https://docs.cedarpolicy.com) policy enforcement, filesystem isolation, and network controls — without changing how the agent works.
 
@@ -34,6 +36,8 @@ Pippin is also useful as a general-purpose sandboxing tool — run any project's
 4. stdout/stderr stream back to your terminal live. A full PTY is allocated, so stdin, signals, and terminal resize events are all forwarded — interactive TUI apps work seamlessly.
 5. You can also run `pippin shell` to drop into an interactive shell inside the sandbox.
 6. The container exits automatically after an idle timeout (default: 15 minutes) — the timer only starts when no commands are running.
+7. `pippin codex [args]` runs the OpenAI Codex CLI directly inside the sandbox — credentials and `OPENAI_API_KEY` are auto-configured via the `codex` tool recipe.
+8. `pippin copilot [args]` runs the GitHub Copilot CLI directly inside the sandbox — `~/.copilot/config.json` is mounted and a GitHub token is resolved automatically via `gh auth token`.
 
 ## Requirements
 
