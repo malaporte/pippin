@@ -18,11 +18,11 @@ Pippin automatically launches a Docker container for your project the first time
 
 AI coding agents — Claude Code, Codex, OpenCode — can run arbitrary shell commands on your machine with your full user permissions. That means package installs with postinstall scripts, builds that execute arbitrary code, file modifications outside the project directory, and network requests to unknown endpoints — all without any isolation. These agents are also vulnerable to prompt injection: malicious instructions hidden in code comments, README files, or web content can trick an agent into running commands it shouldn't. Pippin gives you three ways to contain the blast radius:
 
-1. **Run the agent itself inside a sandbox.** Start the agent with `pippin run` and everything it does — file edits, shell commands, package installs — stays inside the container.
+1. **Use a dedicated agent command.** `pippin codex` and `pippin copilot` run the respective CLI agents fully inside the sandbox with credentials automatically wired up — everything the agent does stays inside the container, no patching required.
 
-2. **Route agent commands through the sandbox.** For a better user experience, keep the agent on the host but configure it to prefix shell commands with `pippin run`. The agent can still read your code, but execution happens in an isolated container. This currently requires a patched agent — see [nopecode](https://github.com/malaporte/nopecode), a prototype fork of OpenCode with Pippin integration. Codex is also open-source and patchable in the same way.
+2. **Run arbitrary commands in a sandbox.** `pippin run <cmd>` executes any command inside the container — build scripts, package installs, test suites, or even agents themselves. Anything that can run in a shell can run through `pippin run`.
 
-3. **Use a dedicated agent command.** `pippin codex` and `pippin copilot` run the respective CLI agents fully inside the sandbox with credentials automatically wired up — no patching required.
+3. **Route agent commands through the sandbox** *(experimental)*. For a better user experience, keep the agent on the host but configure it to prefix shell commands with `pippin run`. The agent can still read your code, but execution happens in an isolated container. This currently requires a patched agent — see [nopecode](https://github.com/malaporte/nopecode), a prototype fork of OpenCode with Pippin integration. Codex is also open-source and patchable in the same way.
 
 Either way, you get [Cedar](https://docs.cedarpolicy.com) policy enforcement, filesystem isolation, and network controls — without changing how the agent works.
 
