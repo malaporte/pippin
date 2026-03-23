@@ -1,3 +1,10 @@
+## [0.6.1](https://github.com/malaporte/pippin/compare/v0.6.0...v0.6.1) (2026-03-23)
+
+
+### Bug Fixes
+
+* **refactor:** remove now unused release skill ([8ffd41d](https://github.com/malaporte/pippin/commit/8ffd41dca14d600f89c7b2b0603caf95d14823da))
+
 # [0.6.0](https://github.com/malaporte/pippin/compare/v0.5.0...v0.6.0) (2026-03-23)
 
 
