@@ -8,6 +8,7 @@ import { findWorkspace } from '../workspace'
 import { resolveServerBinary } from '../sandbox'
 import { resolvePolicy } from '../policy'
 import { RECIPES, KNOWN_TOOLS, resolveToolRequirements } from '../tools'
+import { findLeash, getLeashVersion } from '../leash'
 
 interface CheckResult {
   ok: boolean
@@ -67,19 +68,15 @@ function checkDocker(): CheckResult[] {
 }
 
 function checkLeash(): CheckResult {
-  const result = spawnSync('leash', ['--version'], { encoding: 'utf-8', timeout: 10_000 })
-  if (result.status !== 0 && result.error) {
-    return fail('leash', 'not found on PATH — see https://github.com/strongdm/leash')
+  const leashPath = findLeash()
+  if (!leashPath) {
+    return fail('leash', 'not found — will be auto-installed on first sandbox start, or install manually: npm install -g @strongdm/leash')
   }
 
-  const versionStr = (result.stdout || '').trim().split('\n')[0]
-  // Find the leash binary location
-  const which = spawnSync('which', ['leash'], { encoding: 'utf-8', timeout: 5_000 })
-  const location = (which.stdout || '').trim()
-
-  const detail = versionStr
-    ? `${versionStr}${location ? ` (${location})` : ''}`
-    : location || 'found'
+  const version = getLeashVersion(leashPath)
+  const detail = version
+    ? `${version} (${leashPath})`
+    : leashPath
 
   return pass('leash', detail)
 }

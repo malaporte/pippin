@@ -3,6 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
+import { ensureLeash } from './leash'
 import { readGlobalConfig, expandHome } from './config'
 import type { ResolvedGlobalConfig } from './config'
 import {
@@ -211,10 +212,13 @@ async function startSandbox(
   // Build the leash command
   const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, worktreeMainRepo, resolvedImage, resolvedPolicy)
 
+  // Resolve the leash binary — auto-installs if not found
+  const leashBinary = await ensureLeash()
+
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
 
-  const leashProcess = spawn('leash', args, {
+  const leashProcess = spawn(leashBinary, args, {
     cwd: workspaceRoot,
     env: {
       ...shellEnv,
