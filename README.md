@@ -42,7 +42,7 @@ Pippin is also useful as a general-purpose sandboxing tool — run any project's
 ## Requirements
 
 - **Docker** — any recent version of Docker Desktop or Docker Engine
-- **[leash](https://github.com/strongdm/leash)** — the sandbox runtime that manages containers and enforces Cedar policies via eBPF (`public.ecr.aws/s5i7k8t3/strongdm/leash`)
+- **[leash](https://github.com/strongdm/leash)** — the sandbox runtime that manages containers and enforces Cedar policies via eBPF. Installed automatically by `pippin` if not already present.
 - **macOS or Linux** — x64 or arm64. Windows is not supported.
 
 Run `pippin doctor` after installing to verify your setup.
@@ -53,7 +53,7 @@ Run `pippin doctor` after installing to verify your setup.
 curl -fsSL https://raw.githubusercontent.com/malaporte/pippin/main/scripts/install.sh | bash
 ```
 
-This installs the latest release to `~/.local/bin/pippin`. You can override the destination with `PIPPIN_INSTALL_DIR=/usr/local/bin` or pin a version with `PIPPIN_VERSION=0.1.1`.
+This installs the latest release to `~/.local/bin/pippin`. The install script also downloads and installs the latest [leash](https://github.com/strongdm/leash) binary alongside it. You can override the destination with `PIPPIN_INSTALL_DIR=/usr/local/bin` or pin a version with `PIPPIN_VERSION=0.1.1`.
 
 ### Build from source
 
@@ -68,7 +68,7 @@ bun run deploy:cli
 pippin update
 ```
 
-This downloads and installs the latest release, replacing the current binary. To reinstall the current version (e.g. if the binary is corrupted), use `pippin update --force`.
+This downloads and installs the latest release, replacing the current binary. Leash is also updated to the latest version. To reinstall the current version (e.g. if the binary is corrupted), use `pippin update --force`.
 
 ## Getting started
 
