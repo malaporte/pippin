@@ -2,6 +2,7 @@ export const DEFAULT_SANDBOX_DOCKERFILE = `FROM public.ecr.aws/s5i7k8t3/strongdm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
+      jq \
       pipx \
       openssh-client \
     && rm -rf /var/lib/apt/lists/*
@@ -34,6 +35,10 @@ RUN curl -fsSL https://gh.io/copilot-install | bash
 # Bun
 RUN curl -fsSL https://bun.sh/install | bash \
     && ln -sf /root/.bun/bin/bun /usr/local/bin/bun
+
+# uv (Python package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
 # pnpm via Corepack
 RUN corepack enable
