@@ -2,8 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ['**']
-    tags-ignore: ['v*']  # Releases are handled by release.yml
+    branches-ignore: [main]  # main is handled by release.yml
   pull_request:
     branches: [main]
 
