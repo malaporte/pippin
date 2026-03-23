@@ -15,6 +15,8 @@ import {
   allocatePort,
   acquireLock,
   releaseLock,
+  writeLockPort,
+  isLockHeld,
   isProcessAlive,
   isServerHealthy,
 } from './state'
@@ -24,8 +26,6 @@ import { resolveToolRequirements } from './tools'
 import { DEFAULT_SANDBOX_DOCKERFILE } from './default-dockerfile'
 import type { WorkspaceConfig, MountEntry, SandboxState, DotfileEntry } from '../shared/types'
 
-const LEASH_CODER_IMAGE = 'public.ecr.aws/s5i7k8t3/strongdm/coder'
-const LEASH_IMAGE = 'public.ecr.aws/s5i7k8t3/strongdm/leash'
 const HEALTH_MAX_ATTEMPTS = 60
 const HEALTH_INTERVAL_MS = 1000
 
@@ -65,17 +65,34 @@ export async function ensureSandbox(
     }
   }
 
-  // Acquire lock to prevent concurrent starts
-  if (!acquireLock(workspaceRoot)) {
-    // Another process is starting — wait for it
-    return waitForSandbox(workspaceRoot)
+  // Acquire lock to prevent concurrent starts. If another process holds the
+  // lock, wait for it. If the lock holder crashes without writing state, we
+  // re-attempt the lock ourselves instead of timing out.
+  const MAX_LOCK_ATTEMPTS = 3
+  for (let attempt = 0; attempt < MAX_LOCK_ATTEMPTS; attempt++) {
+    if (acquireLock(workspaceRoot)) {
+      try {
+        return await startSandbox(workspaceRoot, workspaceConfig)
+      } finally {
+        releaseLock(workspaceRoot)
+      }
+    }
+
+    // Another process holds the lock — wait for it to finish
+    const result = await waitForSandbox(workspaceRoot)
+    if (result !== null) {
+      return result
+    }
+
+    // Lock holder finished without producing a valid state (crashed).
+    // Loop back and try to acquire the lock ourselves.
+    if (attempt < MAX_LOCK_ATTEMPTS - 1) {
+      process.stderr.write('pippin: previous sandbox start failed, retrying…\n')
+    }
   }
 
-  try {
-    return await startSandbox(workspaceRoot, workspaceConfig)
-  } finally {
-    releaseLock(workspaceRoot)
-  }
+  process.stderr.write('pippin: sandbox failed to start after multiple attempts\n')
+  process.exit(1)
 }
 
 /** Start a new sandbox container for the given workspace */
@@ -97,10 +114,8 @@ async function startSandbox(
     removeWorkspaceContainer(workspaceRoot)
   }
 
-  // Clean up any stale containers from a previous run
-  removeContainers()
-
   const port = allocatePort(globalConfig.portRangeStart)
+  writeLockPort(workspaceRoot, port)
   const controlPort = port + 1
   const idleTimeout = workspaceConfig.sandbox?.idle_timeout ?? globalConfig.idleTimeout
 
@@ -338,8 +353,12 @@ async function startSandbox(
   return port
 }
 
-/** Wait for another process to finish starting the sandbox, then return the port */
-async function waitForSandbox(workspaceRoot: string): Promise<number> {
+/**
+ * Wait for another process to finish starting the sandbox, then return the port.
+ * Returns null if the lock holder finished without producing a valid state
+ * (e.g. it crashed), so the caller can re-attempt.
+ */
+async function waitForSandbox(workspaceRoot: string): Promise<number | null> {
   const spinner = new Spinner('waiting for sandbox')
   spinner.start()
 
@@ -351,6 +370,13 @@ async function waitForSandbox(workspaceRoot: string): Promise<number> {
     if (state) {
       spinner.stop()
       return state.port
+    }
+
+    // If the lock is no longer held, the other process finished (or crashed)
+    // without producing a valid state. Return null so the caller can retry.
+    if (!isLockHeld(workspaceRoot)) {
+      spinner.stop()
+      return null
     }
   }
 
@@ -382,7 +408,7 @@ export async function stopSandbox(workspaceRoot: string): Promise<void> {
     }
   }
 
-  removeContainers()
+  removeWorkspaceContainer(workspaceRoot)
   removeState(workspaceRoot)
   spinner.stop()
 }
@@ -1003,34 +1029,6 @@ function isContainerNameConflictError(stderr: string, workspaceRoot: string): bo
 
   return stderr.includes('is already in use by container')
     && stderr.toLowerCase().includes(containerName.toLowerCase())
-}
-
-/** Remove stale Docker containers from leash images */
-function removeContainers(): void {
-  const images = [LEASH_CODER_IMAGE, LEASH_IMAGE]
-
-  // Also clean up containers from custom images tracked in sandbox states
-  for (const state of listStates()) {
-    if (state.image && !images.includes(state.image)) {
-      images.push(state.image)
-    }
-  }
-
-  for (const image of images) {
-    try {
-      const result = spawnSync('docker', ['ps', '-a', '-q', '--filter', `ancestor=${image}`], {
-        encoding: 'utf-8',
-        timeout: 10_000,
-      })
-
-      const ids = (result.stdout || '').trim().split('\n').filter(Boolean)
-      if (ids.length > 0) {
-        spawnSync('docker', ['rm', '-fv', ...ids], { timeout: 10_000 })
-      }
-    } catch {
-      // Docker may not be available; ignore
-    }
-  }
 }
 
 /** Resolve the user's login shell environment */

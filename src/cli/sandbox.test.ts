@@ -27,6 +27,8 @@ const stateMocks = {
   allocatePort: vi.fn(),
   acquireLock: vi.fn(),
   releaseLock: vi.fn(),
+  writeLockPort: vi.fn(),
+  isLockHeld: vi.fn(),
   isProcessAlive: vi.fn(),
   isServerHealthy: vi.fn(),
 }
@@ -73,6 +75,8 @@ describe('sandbox image resolution', () => {
     stateMocks.acquireLock.mockReset()
     stateMocks.acquireLock.mockReturnValue(true)
     stateMocks.releaseLock.mockReset()
+    stateMocks.writeLockPort.mockReset()
+    stateMocks.isLockHeld.mockReset()
     stateMocks.isProcessAlive.mockReset()
     stateMocks.isProcessAlive.mockReturnValue(false)
     stateMocks.isServerHealthy.mockReset()
