@@ -123,6 +123,10 @@ function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
       config.sandbox.idle_timeout = sandbox.idle_timeout
     }
 
+    if (typeof sandbox.init === 'string' && sandbox.init.length > 0) {
+      config.sandbox.init = sandbox.init
+    }
+
     if (Array.isArray(sandbox.mounts)) {
       config.sandbox.mounts = sandbox.mounts
         .filter((m): m is MountEntry =>

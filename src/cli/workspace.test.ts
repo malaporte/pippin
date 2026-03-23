@@ -147,6 +147,42 @@ host_commands = ["git", "ssh"]
     expect(result!.config.sandbox?.host_commands).toEqual(['git', 'ssh'])
   })
 
+  it('parses init from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+init = "bun install"
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.init).toBe('bun install')
+  })
+
+  it('ignores empty string init in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+init = ""
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.init).toBeUndefined()
+  })
+
+  it('ignores invalid init values in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+init = 42
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.init).toBeUndefined()
+  })
+
   it('filters invalid host_commands entries', () => {
     const toml = `
 [sandbox]

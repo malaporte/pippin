@@ -7,6 +7,10 @@ const TEMPLATE = `# Pippin sandbox configuration
 [sandbox]
 # idle_timeout = 900  # seconds before the sandbox auto-shuts down
 
+# Run a shell command inside the container after each fresh sandbox start.
+# Useful for installing arch-specific dependencies in the sandbox.
+# init = "bun install"
+
 # Cedar policy file for sandbox enforcement (restricts commands, file access, network):
 # policy = "sandbox.cedar"
 

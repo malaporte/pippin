@@ -611,6 +611,7 @@ function computeConfigHash(
   const parts: string[] = [
     `image:${image ?? ''}`,
     `policy:${policy ?? ''}`,
+    `init:${workspaceConfig.sandbox?.init ?? ''}`,
   ]
 
   // Include policy file content so edits to the .cedar file are detected
@@ -831,6 +832,7 @@ function buildLeashArgs(
   const COMBINED_CA = '/tmp/combined-ca.pem'
   const SF_CACHE_DIR = '$HOME/.cache/snowflake'
   const SF_CACHE_FILE = `${SF_CACHE_DIR}/credential_cache_v1.json`
+  const workspaceInit = workspaceConfig.sandbox?.init?.trim()
   const bootstrap = [
     // Create a combined CA bundle from the system store + leash MITM CA.
     // If leash's CA isn't present (e.g. running without leash), just copy
@@ -849,6 +851,7 @@ function buildLeashArgs(
     // The cache dir must be 0700 and the file 0600 for the connector to
     // accept them.
     `if [ -n "$SNOWFLAKE_ID_TOKEN" ] && [ -n "$SNOWFLAKE_TOKEN_HASH_KEY" ]; then mkdir -p ${SF_CACHE_DIR} && chmod 700 ${SF_CACHE_DIR} && printf '{"tokens":{"%s":"%s"}}' "$SNOWFLAKE_TOKEN_HASH_KEY" "$SNOWFLAKE_ID_TOKEN" > ${SF_CACHE_FILE} && chmod 600 ${SF_CACHE_FILE}; fi`,
+    ...(workspaceInit ? [workspaceInit] : []),
     'exec /leash/pippin-server',
   ].join(' && ')
   args.push('--', 'sh', '-c', bootstrap)
@@ -1055,6 +1058,7 @@ function getShellEnv(): Record<string, string> {
 export const __test__ = {
   resolveImage,
   buildDockerImage,
+  buildLeashArgs,
   computeConfigHash,
   startSandbox,
   getWorkspaceContainerName,

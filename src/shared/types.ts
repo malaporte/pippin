@@ -91,6 +91,8 @@ export interface MountEntry {
 export interface WorkspaceConfig {
   sandbox?: {
     idle_timeout?: number
+    /** Shell command to run inside the container each time a fresh sandbox starts */
+    init?: string
     mounts?: MountEntry[]
     /** Override the Docker image used for the sandbox container */
     image?: string
