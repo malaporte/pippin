@@ -118,6 +118,9 @@ A `.pippin.toml` file marks the workspace root and lets you customize the sandbo
 # Override the global idle timeout (seconds)
 idle_timeout = 900
 
+# Run a shell command inside the container after each fresh sandbox start
+# init = "bun install"
+
 # Shell to use for `pippin shell` (default: "bash")
 # shell = "zsh"
 

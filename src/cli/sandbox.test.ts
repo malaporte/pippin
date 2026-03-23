@@ -96,4 +96,56 @@ describe('sandbox image resolution', () => {
     expect(fromFile).toBe(fromInline)
     expect(fromFile).toMatch(/^pippin-custom:[0-9a-f]{12}$/)
   })
+
+  it('includes workspace init in the bootstrap command', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      { sandbox: { init: 'bun install' } },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      null,
+      undefined,
+      undefined,
+    )
+
+    expect(args.slice(-4, -1)).toEqual(['--', 'sh', '-c'])
+    expect(args.at(-1)).toContain('bun install')
+    expect(args.at(-1)).toContain('exec /leash/pippin-server')
+  })
+
+  it('omits workspace init from the bootstrap command when not configured', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      {},
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      null,
+      undefined,
+      undefined,
+    )
+
+    expect(args.at(-1)).not.toContain('bun install')
+    expect(args.at(-1)).toContain('exec /leash/pippin-server')
+  })
+
+  it('changes the config hash when workspace init changes', async () => {
+    const { __test__ } = await import('./sandbox')
+
+    const withoutInit = __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+    const withInit = __test__.computeConfigHash(tmpDir, { sandbox: { init: 'bun install' } }, defaultGlobalConfig())
+
+    expect(withInit).not.toBe(withoutInit)
+  })
 })
