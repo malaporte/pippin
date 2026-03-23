@@ -38,10 +38,13 @@ export function readState(workspaceRoot: string): SandboxState | null {
   }
 }
 
-/** Write sandbox state for a workspace */
+/** Write sandbox state for a workspace (atomic via temp file + rename) */
 export function writeState(state: SandboxState): void {
   ensureStateDir()
-  fs.writeFileSync(stateFilePath(state.workspaceRoot), JSON.stringify(state, null, 2) + '\n')
+  const target = stateFilePath(state.workspaceRoot)
+  const tmp = `${target}.${process.pid}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n')
+  fs.renameSync(tmp, target)
 }
 
 /** Remove sandbox state for a workspace */
@@ -137,7 +140,8 @@ export function acquireLock(workspaceRoot: string): boolean {
   } catch {
     // Lock file already exists — check if the holder is still alive
     try {
-      const pid = parseInt(fs.readFileSync(lockFilePath(workspaceRoot), 'utf-8').trim(), 10)
+      const content = fs.readFileSync(lockFilePath(workspaceRoot), 'utf-8').trim()
+      const pid = parseInt(content.split(':')[0], 10)
       if (!isNaN(pid) && isProcessAlive(pid)) {
         return false
       }
@@ -147,6 +151,30 @@ export function acquireLock(workspaceRoot: string): boolean {
     } catch {
       return false
     }
+  }
+}
+
+/**
+ * Write the allocated port into the lock file so that concurrent starts
+ * for other workspaces can see which ports are in-flight.
+ * Must be called while the lock is held.
+ */
+export function writeLockPort(workspaceRoot: string, port: number): void {
+  try {
+    fs.writeFileSync(lockFilePath(workspaceRoot), `${process.pid}:${port}`)
+  } catch {
+    // Best-effort — the lock file may have been removed
+  }
+}
+
+/** Check if the lock for a workspace is currently held by a live process */
+export function isLockHeld(workspaceRoot: string): boolean {
+  try {
+    const content = fs.readFileSync(lockFilePath(workspaceRoot), 'utf-8').trim()
+    const pid = parseInt(content.split(':')[0], 10)
+    return !isNaN(pid) && isProcessAlive(pid)
+  } catch {
+    return false
   }
 }
 
@@ -161,10 +189,34 @@ export function releaseLock(workspaceRoot: string): void {
 
 /**
  * Allocate the next available port starting from portRangeStart,
- * skipping ports already in use by tracked sandboxes.
+ * skipping ports already in use by tracked sandboxes and ports
+ * reserved by in-flight sandbox starts (recorded in lock files).
  */
 export function allocatePort(portRangeStart: number): number {
   const usedPorts = new Set(listStates().map((s) => s.port))
+
+  // Also check lock files for ports reserved by in-flight starts
+  try {
+    const files = fs.readdirSync(STATE_DIR)
+    for (const file of files) {
+      if (!file.endsWith('.lock')) continue
+      try {
+        const content = fs.readFileSync(path.join(STATE_DIR, file), 'utf-8').trim()
+        const parts = content.split(':')
+        if (parts.length >= 2) {
+          const port = parseInt(parts[1], 10)
+          if (!isNaN(port)) {
+            usedPorts.add(port)
+          }
+        }
+      } catch {
+        // Lock file may have been removed; skip
+      }
+    }
+  } catch {
+    // STATE_DIR may not exist yet; ignore
+  }
+
   let port = portRangeStart
   while (usedPorts.has(port)) {
     port++
