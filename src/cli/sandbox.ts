@@ -81,8 +81,20 @@ export async function ensureSandbox(
 async function startSandbox(
   workspaceRoot: string,
   workspaceConfig: WorkspaceConfig,
+  retryAttempt = 0,
+  logPreflightCleanup = true,
 ): Promise<number> {
   const globalConfig = readGlobalConfig()
+
+  // Clean up the workspace-named container first. Leash derives Docker
+  // container names from the working directory, so stale containers from a
+  // previous session can collide even when pippin state has already expired.
+  const workspaceContainerName = getWorkspaceContainerName(workspaceRoot)
+  if (logPreflightCleanup && removeWorkspaceContainer(workspaceRoot) && workspaceContainerName) {
+    process.stderr.write(`pippin: removed stale sandbox container ${workspaceContainerName} before startup\n`)
+  } else if (!logPreflightCleanup) {
+    removeWorkspaceContainer(workspaceRoot)
+  }
 
   // Clean up any stale containers from a previous run
   removeContainers()
@@ -260,6 +272,15 @@ async function startSandbox(
     try { leashProcess.kill('SIGTERM') } catch { /* already gone */ }
 
     const stderr = Buffer.concat(stderrChunks).toString()
+
+    if (retryAttempt === 0 && isContainerNameConflictError(stderr, workspaceRoot)) {
+      if (workspaceContainerName) {
+        process.stderr.write(`pippin: removing stale sandbox container ${workspaceContainerName} and retrying...\n`)
+      }
+      removeWorkspaceContainer(workspaceRoot)
+      return startSandbox(workspaceRoot, workspaceConfig, retryAttempt + 1, false)
+    }
+
     process.stderr.write(`pippin: sandbox failed to start\n`)
     if (stderr.trim()) {
       process.stderr.write(stderr)
@@ -931,6 +952,55 @@ export function resolveServerBinary(): string | null {
   return null
 }
 
+function getWorkspaceContainerName(workspaceRoot: string): string | null {
+  const base = path.basename(path.resolve(workspaceRoot)).trim()
+  if (!base) return null
+
+  const normalized = base
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return normalized || null
+}
+
+function removeContainerByName(containerName: string): boolean {
+  try {
+    const result = spawnSync('docker', ['ps', '-a', '-q', '--filter', `name=^/${containerName}$`], {
+      encoding: 'utf-8',
+      timeout: 10_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+
+    const ids = (result.stdout || '').trim().split('\n').filter(Boolean)
+    if (ids.length === 0) return false
+
+    const removed = spawnSync('docker', ['rm', '-fv', ...ids], {
+      encoding: 'utf-8',
+      timeout: 10_000,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+
+    return removed.status === 0
+  } catch {
+    return false
+  }
+}
+
+function removeWorkspaceContainer(workspaceRoot: string): boolean {
+  const containerName = getWorkspaceContainerName(workspaceRoot)
+  if (!containerName) return false
+  return removeContainerByName(containerName)
+}
+
+function isContainerNameConflictError(stderr: string, workspaceRoot: string): boolean {
+  const containerName = getWorkspaceContainerName(workspaceRoot)
+  if (!containerName) return false
+
+  return stderr.includes('is already in use by container')
+    && stderr.toLowerCase().includes(containerName.toLowerCase())
+}
+
 /** Remove stale Docker containers from leash images */
 function removeContainers(): void {
   const images = [LEASH_CODER_IMAGE, LEASH_IMAGE]
@@ -990,6 +1060,10 @@ export const __test__ = {
   buildDockerImage,
   buildLeashArgs,
   computeConfigHash,
+  startSandbox,
+  getWorkspaceContainerName,
+  removeWorkspaceContainer,
+  isContainerNameConflictError,
 }
 
 function sleep(ms: number): Promise<void> {
