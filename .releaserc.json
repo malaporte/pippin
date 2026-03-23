@@ -1,0 +1,27 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/changelog",
+    ["@semantic-release/npm", { "npmPublish": false }],
+    ["@semantic-release/exec", {
+      "prepareCmd": "VERSION=${nextRelease.version} bun run build && cd dist && for f in pippin-darwin-arm64 pippin-darwin-x64 pippin-linux-x64 pippin-linux-arm64 pippin-server-linux-x64 pippin-server-linux-arm64; do tar -czf \"$f.tar.gz\" \"$f\"; done"
+    }],
+    ["@semantic-release/github", {
+      "assets": [
+        { "path": "dist/pippin-darwin-arm64.tar.gz", "label": "pippin-darwin-arm64.tar.gz" },
+        { "path": "dist/pippin-darwin-x64.tar.gz", "label": "pippin-darwin-x64.tar.gz" },
+        { "path": "dist/pippin-linux-x64.tar.gz", "label": "pippin-linux-x64.tar.gz" },
+        { "path": "dist/pippin-linux-arm64.tar.gz", "label": "pippin-linux-arm64.tar.gz" },
+        { "path": "dist/pippin-server-linux-x64.tar.gz", "label": "pippin-server-linux-x64.tar.gz" },
+        { "path": "dist/pippin-server-linux-arm64.tar.gz", "label": "pippin-server-linux-arm64.tar.gz" }
+      ]
+    }],
+    ["@semantic-release/git", {
+      "assets": ["package.json", "CHANGELOG.md"],
+      "message": "chore(release): ${nextRelease.version} [skip ci]"
+    }]
+  ]
+}
