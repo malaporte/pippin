@@ -1,3 +1,10 @@
+## [0.6.2](https://github.com/malaporte/pippin/compare/v0.6.1...v0.6.2) (2026-03-23)
+
+
+### Bug Fixes
+
+* use unique container names to prevent cross-workspace collisions ([#9](https://github.com/malaporte/pippin/issues/9)) ([fc42f93](https://github.com/malaporte/pippin/commit/fc42f9379904fc1f183c7415c97bdc728726c3c6))
+
 ## [0.6.1](https://github.com/malaporte/pippin/compare/v0.6.0...v0.6.1) (2026-03-23)
 
 
