@@ -227,6 +227,7 @@ Tools from both configs are merged (union). The following tools have built-in re
 | `aws` | Mounts `~/.aws/config` (readonly). Resolves temporary SSO credentials via `aws configure export-credentials` at sandbox start. |
 | `snowflake` | Mounts `~/.snowflake/config.toml` (readonly). Extracts cached ID token from macOS keychain for `externalbrowser` auth. |
 | `npm` | Mounts `~/.npmrc` (readonly). Forwards `NPM_TOKEN` and `NPM_CONFIG_REGISTRY`. |
+| `pnpm` | Mounts `~/.npmrc` (readonly). Detects the host's pnpm content-addressable store via `pnpm store path` and mounts it into the container. Sets `PNPM_STORE_DIR` so pnpm uses the mounted store — `pnpm install` reuses cached packages instead of re-downloading. Forwards `NPM_TOKEN`, `NPM_CONFIG_REGISTRY`, and `PNPM_HOME`. |
 | `ssh` | Mounts `~/.ssh/config` and `~/.ssh/known_hosts` (readonly). Enables SSH agent. Sanitizes macOS-specific options (`UseKeychain`, `AddKeysToAgent`) for Linux compatibility. |
 | `codex` | Mounts `~/.codex/config.toml` and `~/.codex/auth.json` (readonly). Forwards `OPENAI_API_KEY`. |
 | `copilot` | Mounts `~/.copilot/config.json` (readonly). Resolves `COPILOT_GITHUB_TOKEN` via `gh auth token`. Forwards `GH_TOKEN` and `GITHUB_TOKEN`. |

@@ -22,7 +22,7 @@ import {
 } from './state'
 import { Spinner } from './spinner'
 import { resolvePolicy } from './policy'
-import { resolveToolRequirements } from './tools'
+import { resolveToolRequirements, resolvePnpmStorePath } from './tools'
 import { DEFAULT_SANDBOX_DOCKERFILE } from './default-dockerfile'
 import type { WorkspaceConfig, MountEntry, SandboxState, DotfileEntry } from '../shared/types'
 
@@ -155,6 +155,7 @@ async function startSandbox(
   // and override dotfile mounts with dynamically generated files (e.g. Snowflake
   // extracts a keychain token and generates a modified config.toml).
   const dotfileOverrides = new Map<string, string>() // original path -> generated path
+  const toolExtraMounts: Array<{ path: string; readonly?: boolean }> = []
   for (const prepare of toolReqs.hostPrepares) {
     try {
       const result = prepare(shellEnv)
@@ -171,6 +172,11 @@ async function startSandbox(
       if (result.dotfileOverrides) {
         for (const [original, generated] of Object.entries(result.dotfileOverrides)) {
           dotfileOverrides.set(original, generated)
+        }
+      }
+      if (result.extraMounts) {
+        for (const mount of result.extraMounts) {
+          toolExtraMounts.push(mount)
         }
       }
     } catch (e) {
@@ -237,7 +243,7 @@ async function startSandbox(
   const worktreeMainRepo = resolveWorktreeMainRepo(workspaceRoot)
 
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, worktreeMainRepo, resolvedImage, resolvedPolicy)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, worktreeMainRepo, toolExtraMounts, resolvedImage, resolvedPolicy)
 
   // Resolve the leash binary — auto-installs if not found
   const leashBinary = await ensureLeash()
@@ -708,6 +714,13 @@ async function computeConfigHash(
     parts.push(`worktree-main:${worktreeMainRepo}`)
   }
 
+  // pnpm store path — include so that moving the store triggers a sandbox restart
+  if (tools.includes('pnpm')) {
+    const shellEnv = getShellEnv()
+    const pnpmStore = resolvePnpmStorePath(shellEnv)
+    parts.push(`pnpm-store:${pnpmStore ?? ''}`)
+  }
+
   return crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)
 }
 
@@ -744,6 +757,7 @@ function buildLeashArgs(
   gpgAgent: boolean,
   dotfileOverrides: Map<string, string>,
   worktreeMainRepo: string | null,
+  toolExtraMounts: Array<{ path: string; readonly?: boolean }>,
   image?: string,
   policy?: string,
 ): string[] {
@@ -816,6 +830,23 @@ function buildLeashArgs(
   if (worktreeMainRepo && !mountedPaths.has(worktreeMainRepo)) {
     mountedPaths.add(worktreeMainRepo)
     args.push('-v', `${worktreeMainRepo}:${worktreeMainRepo}`)
+  }
+
+  // Add extra mounts from tool recipes (e.g. the pnpm content-addressable store).
+  // These are discovered dynamically at sandbox start time by hostPrepare functions.
+  for (const mount of toolExtraMounts) {
+    const expanded = expandHome(mount.path)
+    if (!fs.existsSync(expanded)) continue
+    if (mountedPaths.has(expanded)) continue
+    mountedPaths.add(expanded)
+    // Map ~/foo → /root/foo inside the container
+    const containerPath = expanded.startsWith(hostHome)
+      ? containerHome + expanded.slice(hostHome.length)
+      : expanded
+    const mountSpec = mount.readonly
+      ? `${expanded}:${containerPath}:ro`
+      : `${expanded}:${containerPath}`
+    args.push('-v', mountSpec)
   }
 
   // Set the pippin-server port and idle timeout via env

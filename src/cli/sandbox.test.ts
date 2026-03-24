@@ -39,6 +39,7 @@ const policyMocks = {
 
 const toolMocks = {
   resolveToolRequirements: vi.fn(),
+  resolvePnpmStorePath: vi.fn(),
 }
 
 const leashMocks = {
@@ -202,6 +203,7 @@ describe('sandbox image resolution', () => {
       false,
       new Map(),
       null,
+      [],
       undefined,
       undefined,
     )
@@ -224,6 +226,7 @@ describe('sandbox image resolution', () => {
       false,
       new Map(),
       null,
+      [],
       undefined,
       undefined,
     )
