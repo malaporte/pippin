@@ -1,3 +1,10 @@
+## [0.6.3](https://github.com/malaporte/pippin/compare/v0.6.2...v0.6.3) (2026-03-24)
+
+
+### Bug Fixes
+
+* probe host ports before allocating to prevent container start failures ([#10](https://github.com/malaporte/pippin/issues/10)) ([fa4b5af](https://github.com/malaporte/pippin/commit/fa4b5af0538eab483e6542c85eeb5a99f74fd0d2))
+
 ## [0.6.2](https://github.com/malaporte/pippin/compare/v0.6.1...v0.6.2) (2026-03-23)
 
 
