@@ -924,6 +924,11 @@ function buildLeashArgs(
     // The cache dir must be 0700 and the file 0600 for the connector to
     // accept them.
     `if [ -n "$SNOWFLAKE_ID_TOKEN" ] && [ -n "$SNOWFLAKE_TOKEN_HASH_KEY" ]; then mkdir -p ${SF_CACHE_DIR} && chmod 700 ${SF_CACHE_DIR} && printf '{"tokens":{"%s":"%s"}}' "$SNOWFLAKE_TOKEN_HASH_KEY" "$SNOWFLAKE_ID_TOKEN" > ${SF_CACHE_FILE} && chmod 600 ${SF_CACHE_FILE}; fi`,
+    // GPG requires its homedir to have permissions 700. When Docker creates
+    // /root/.gnupg implicitly to satisfy bind-mount paths (e.g. the agent
+    // socket or pubring files), it uses 755. Fix that up at startup so that
+    // gpg-agent forwarding works without the "unsafe permissions" warning.
+    `if [ -d /root/.gnupg ]; then chmod 700 /root/.gnupg; fi`,
     ...(workspaceInit ? [workspaceInit] : []),
     'exec /leash/pippin-server',
   ].join(' && ')

@@ -151,6 +151,20 @@ path under `/private/var/` on some macOS configurations). Pippin
 bind-mounts this socket to `/root/.gnupg/S.gpg-agent` inside the
 container.
 
+### 3. Fixing `/root/.gnupg` Permissions
+
+GPG requires its homedir to have permissions `700`. When Docker
+bind-mounts files into `/root/.gnupg/` (the socket, pubring, trustdb),
+it auto-creates the directory with `755` if it doesn't already exist.
+This causes GPG to emit `WARNING: unsafe permissions on homedir` and
+refuse to connect to the agent.
+
+The bootstrap script fixes this at container startup:
+
+```sh
+if [ -d /root/.gnupg ]; then chmod 700 /root/.gnupg; fi
+```
+
 When `git commit -S` invokes `gpg --sign`, the GPG client inside the
 container connects to the forwarded agent socket. The host's
 `gpg-agent` performs the signing operation, handling pinentry
