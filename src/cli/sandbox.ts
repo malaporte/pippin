@@ -312,6 +312,12 @@ async function startSandbox(
       return startSandbox(workspaceRoot, workspaceConfig, retryAttempt + 1, false)
     }
 
+    if (retryAttempt === 0 && isPortInUseError(stderr)) {
+      process.stderr.write('pippin: port conflict detected, retrying with a new port…\n')
+      removeWorkspaceContainer(workspaceRoot)
+      return startSandbox(workspaceRoot, workspaceConfig, retryAttempt + 1, false)
+    }
+
     process.stderr.write(`pippin: sandbox failed to start\n`)
     if (stderr.trim()) {
       process.stderr.write(stderr)
@@ -321,15 +327,16 @@ async function startSandbox(
     // diagnostic when pippin-server crashes silently inside the sandbox.
     // Try reading docker logs from the target container first, then fall
     // back to the host-side share directory log file.
+    const logContainerName = workspaceContainerName ?? 'pippin'
     try {
-      const result = spawnSync('docker', ['logs', '--tail', '50', 'pippin'], {
+      const result = spawnSync('docker', ['logs', '--tail', '50', logContainerName], {
         encoding: 'utf-8',
         timeout: 5_000,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       const dockerLog = [result.stdout, result.stderr].filter(Boolean).join('').trim()
       if (dockerLog) {
-        process.stderr.write(`\n--- container log (docker logs pippin) ---\n`)
+        process.stderr.write(`\n--- container log (docker logs ${logContainerName}) ---\n`)
         process.stderr.write(dockerLog + '\n')
         process.stderr.write('--- end container log ---\n')
       }
@@ -741,8 +748,8 @@ function buildLeashArgs(
   policy?: string,
 ): string[] {
   const args: string[] = [
-    '-p', `${port}:${port}`,
-    '-l', `:${controlPort}`,
+    '-p', `127.0.0.1:${port}:${port}`,
+    '-l', `127.0.0.1:${controlPort}`,
     '-I',
   ]
 
@@ -1008,7 +1015,7 @@ function getWorkspaceContainerName(workspaceRoot: string): string | null {
 
 function removeContainerByName(containerName: string): boolean {
   try {
-    const result = spawnSync('docker', ['ps', '-a', '-q', '--filter', `name=^/${containerName}$`], {
+    const result = spawnSync('docker', ['ps', '-a', '-q', '--filter', `name=^/${containerName}`], {
       encoding: 'utf-8',
       timeout: 10_000,
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -1032,6 +1039,8 @@ function removeContainerByName(containerName: string): boolean {
 function removeWorkspaceContainer(workspaceRoot: string): boolean {
   const containerName = getWorkspaceContainerName(workspaceRoot)
   if (!containerName) return false
+  // Use a prefix match so we also catch leash-suffixed variants
+  // (e.g. "${name}1", "${name}2") and the leash sidecar ("${name}-leash").
   return removeContainerByName(containerName)
 }
 
@@ -1041,6 +1050,10 @@ function isContainerNameConflictError(stderr: string, workspaceRoot: string): bo
 
   return stderr.includes('is already in use by container')
     && stderr.toLowerCase().includes(containerName.toLowerCase())
+}
+
+function isPortInUseError(stderr: string): boolean {
+  return /port\s+\d+\s+is already in use/.test(stderr)
 }
 
 /** Resolve the user's login shell environment */
@@ -1078,6 +1091,7 @@ export const __test__ = {
   getWorkspaceContainerName,
   removeWorkspaceContainer,
   isContainerNameConflictError,
+  isPortInUseError,
 }
 
 function sleep(ms: number): Promise<void> {
