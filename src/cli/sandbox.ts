@@ -48,7 +48,7 @@ export async function ensureSandbox(
     // against what the current configuration would produce.
     if (existing.configHash) {
       const globalConfig = readGlobalConfig()
-      const currentHash = computeConfigHash(workspaceRoot, workspaceConfig, globalConfig)
+      const currentHash = await computeConfigHash(workspaceRoot, workspaceConfig, globalConfig)
 
       if (existing.configHash === currentHash) {
         return existing.port // Config unchanged — reuse existing sandbox
@@ -114,13 +114,13 @@ async function startSandbox(
     removeWorkspaceContainer(workspaceRoot)
   }
 
-  const port = allocatePort(globalConfig.portRangeStart)
+  const port = await allocatePort(globalConfig.portRangeStart)
   writeLockPort(workspaceRoot, port)
   const controlPort = port + 1
   const idleTimeout = workspaceConfig.sandbox?.idle_timeout ?? globalConfig.idleTimeout
 
   // Resolve the custom Docker image (if configured)
-  const resolvedImage = resolveImage(workspaceRoot, workspaceConfig, globalConfig)
+  const resolvedImage = await resolveImage(workspaceRoot, workspaceConfig, globalConfig)
 
   // Resolve the Cedar policy file (if configured)
   const resolvedPolicy = resolvePolicy(workspaceRoot, workspaceConfig, globalConfig)
@@ -251,12 +251,24 @@ async function startSandbox(
   const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
   spinner.start()
 
+  // Tell leash to use a unique container name that includes a hash of the
+  // full workspace path.  Without this, leash derives the name from
+  // path.Base(cwd) which collides when two workspaces share the same
+  // directory basename (e.g. two git worktrees both named "worktree-setup").
+  // Leash respects TARGET_CONTAINER / LEASH_CONTAINER env vars as overrides
+  // for the default basename-derived names.
+  const uniqueWorkspaceName = getWorkspaceContainerName(workspaceRoot)
+
   const leashProcess = spawn(leashBinary, args, {
     cwd: workspaceRoot,
     env: {
       ...shellEnv,
       LEASH_SHARE_DIR: shareDir,
       PIPPIN_IDLE_TIMEOUT: String(idleTimeout),
+      ...(uniqueWorkspaceName ? {
+        TARGET_CONTAINER: uniqueWorkspaceName,
+        LEASH_CONTAINER: `${uniqueWorkspaceName}-leash`,
+      } : {}),
     },
     stdio: ['ignore', 'ignore', 'pipe'],
   })
@@ -306,6 +318,12 @@ async function startSandbox(
       return startSandbox(workspaceRoot, workspaceConfig, retryAttempt + 1, false)
     }
 
+    if (retryAttempt === 0 && isPortInUseError(stderr)) {
+      process.stderr.write('pippin: port conflict detected, retrying with a new port…\n')
+      removeWorkspaceContainer(workspaceRoot)
+      return startSandbox(workspaceRoot, workspaceConfig, retryAttempt + 1, false)
+    }
+
     process.stderr.write(`pippin: sandbox failed to start\n`)
     if (stderr.trim()) {
       process.stderr.write(stderr)
@@ -315,15 +333,16 @@ async function startSandbox(
     // diagnostic when pippin-server crashes silently inside the sandbox.
     // Try reading docker logs from the target container first, then fall
     // back to the host-side share directory log file.
+    const logContainerName = workspaceContainerName ?? 'pippin'
     try {
-      const result = spawnSync('docker', ['logs', '--tail', '50', 'pippin'], {
+      const result = spawnSync('docker', ['logs', '--tail', '50', logContainerName], {
         encoding: 'utf-8',
         timeout: 5_000,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       const dockerLog = [result.stdout, result.stderr].filter(Boolean).join('').trim()
       if (dockerLog) {
-        process.stderr.write(`\n--- container log (docker logs pippin) ---\n`)
+        process.stderr.write(`\n--- container log (docker logs ${logContainerName}) ---\n`)
         process.stderr.write(dockerLog + '\n')
         process.stderr.write('--- end container log ---\n')
       }
@@ -343,7 +362,7 @@ async function startSandbox(
   leashProcess.unref()
 
   // Write state
-  const configHash = computeConfigHash(workspaceRoot, workspaceConfig, globalConfig)
+  const configHash = await computeConfigHash(workspaceRoot, workspaceConfig, globalConfig)
   const state: SandboxState = {
     workspaceRoot,
     port,
@@ -437,11 +456,11 @@ export async function stopAllSandboxes(): Promise<void> {
  *   4. global dockerfile             (built into a tagged image)
  *   5. bundled default dockerfile  (built into a tagged image)
  */
-function resolveImage(
+async function resolveImage(
   workspaceRoot: string,
   workspaceConfig: WorkspaceConfig,
   globalConfig: ResolvedGlobalConfig,
-): string | undefined {
+): Promise<string | undefined> {
   // Workspace-level image takes top priority
   if (workspaceConfig.sandbox?.image) {
     return workspaceConfig.sandbox.image
@@ -450,7 +469,7 @@ function resolveImage(
   // Workspace-level dockerfile
   if (workspaceConfig.sandbox?.dockerfile) {
     const dockerfilePath = path.resolve(workspaceRoot, expandHome(workspaceConfig.sandbox.dockerfile))
-    return buildDockerImage({ kind: 'path', dockerfilePath })
+    return await buildDockerImage({ kind: 'path', dockerfilePath })
   }
 
   // Global-level image
@@ -461,10 +480,10 @@ function resolveImage(
   // Global-level dockerfile
   if (globalConfig.dockerfile) {
     const dockerfilePath = path.resolve(expandHome(globalConfig.dockerfile))
-    return buildDockerImage({ kind: 'path', dockerfilePath })
+    return await buildDockerImage({ kind: 'path', dockerfilePath })
   }
 
-  return buildDockerImage({
+  return await buildDockerImage({
     kind: 'inline',
     dockerfileText: DEFAULT_SANDBOX_DOCKERFILE,
     label: 'bundled default sandbox image',
@@ -476,7 +495,7 @@ function resolveImage(
  * Skips the build if an image with the same hash tag already exists.
  * Returns the image tag string.
  */
-function buildDockerImage(source: DockerfileBuildSource): string {
+async function buildDockerImage(source: DockerfileBuildSource): Promise<string> {
   let content: Buffer
   let dockerfilePath: string
   let context: string
@@ -504,13 +523,9 @@ function buildDockerImage(source: DockerfileBuildSource): string {
   const tag = `pippin-custom:${hash}`
 
   // Check if this image already exists
-  const inspect = spawnSync('docker', ['image', 'inspect', tag], {
-    encoding: 'utf-8',
-    timeout: 10_000,
-    stdio: ['ignore', 'ignore', 'ignore'],
-  })
+  const { exitCode: inspectCode } = await spawnAsync('docker', ['image', 'inspect', tag], { timeout: 10_000 })
 
-  if (inspect.status === 0) {
+  if (inspectCode === 0) {
     // Image already exists with this hash — skip build
     return tag
   }
@@ -520,30 +535,27 @@ function buildDockerImage(source: DockerfileBuildSource): string {
     : 'building custom sandbox image')
   spinner.start()
 
-  const build = (() => {
-    try {
-      return spawnSync('docker', ['build', '-t', tag, '-f', dockerfilePath, context], {
-        encoding: 'utf-8',
-        timeout: 300_000, // 5 minute timeout for builds
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-    } finally {
-      spinner.stop()
-      if (cleanupDir) {
-        fs.rmSync(cleanupDir, { recursive: true, force: true })
-      }
-    }
-  })()
+  try {
+    const { exitCode, stdout, stderr } = await spawnAsync(
+      'docker', ['build', '-t', tag, '-f', dockerfilePath, context],
+      { timeout: 300_000 },
+    )
 
-  if (build.status !== 0) {
-    process.stderr.write(`pippin: failed to build ${source.kind === 'inline' ? 'bundled sandbox image' : 'custom sandbox image'}\n`)
-    if (build.stderr?.trim()) {
-      process.stderr.write(build.stderr)
+    if (exitCode !== 0) {
+      process.stderr.write(`pippin: failed to build ${source.kind === 'inline' ? 'bundled sandbox image' : 'custom sandbox image'}\n`)
+      if (stderr?.trim()) {
+        process.stderr.write(stderr)
+      }
+      if (stdout?.trim()) {
+        process.stderr.write(stdout)
+      }
+      process.exit(1)
     }
-    if (build.stdout?.trim()) {
-      process.stderr.write(build.stdout)
+  } finally {
+    spinner.stop()
+    if (cleanupDir) {
+      fs.rmSync(cleanupDir, { recursive: true, force: true })
     }
-    process.exit(1)
   }
 
   return tag
@@ -636,12 +648,12 @@ function resolveWorktreeMainRepo(workspaceRoot: string): string | null {
  * Inputs hashed: resolved image tag, resolved policy path + file content,
  * global dotfile mounts, workspace mounts, and forwarded env var names.
  */
-function computeConfigHash(
+async function computeConfigHash(
   workspaceRoot: string,
   workspaceConfig: WorkspaceConfig,
   globalConfig: ResolvedGlobalConfig,
-): string {
-  const image = resolveImage(workspaceRoot, workspaceConfig, globalConfig)
+): Promise<string> {
+  const image = await resolveImage(workspaceRoot, workspaceConfig, globalConfig)
   const policy = resolvePolicy(workspaceRoot, workspaceConfig, globalConfig)
 
   const parts: string[] = [
@@ -750,8 +762,8 @@ function buildLeashArgs(
   policy?: string,
 ): string[] {
   const args: string[] = [
-    '-p', `${port}:${port}`,
-    '-l', `:${controlPort}`,
+    '-p', `127.0.0.1:${port}:${port}`,
+    '-l', `127.0.0.1:${controlPort}`,
     '-I',
   ]
 
@@ -1014,7 +1026,8 @@ export function resolveServerBinary(): string | null {
 }
 
 function getWorkspaceContainerName(workspaceRoot: string): string | null {
-  const base = path.basename(path.resolve(workspaceRoot)).trim()
+  const resolved = path.resolve(workspaceRoot)
+  const base = path.basename(resolved).trim()
   if (!base) return null
 
   const normalized = base
@@ -1022,12 +1035,18 @@ function getWorkspaceContainerName(workspaceRoot: string): string | null {
     .replace(/[^a-z0-9_.-]+/g, '-')
     .replace(/^-+|-+$/g, '')
 
-  return normalized || null
+  if (!normalized) return null
+
+  // Append a short hash of the full path to avoid collisions between
+  // workspaces that share the same directory basename (e.g. two git
+  // worktrees both named "worktree-setup" under different repositories).
+  const hash = crypto.createHash('sha256').update(resolved).digest('hex').slice(0, 8)
+  return `${normalized}-${hash}`
 }
 
 function removeContainerByName(containerName: string): boolean {
   try {
-    const result = spawnSync('docker', ['ps', '-a', '-q', '--filter', `name=^/${containerName}$`], {
+    const result = spawnSync('docker', ['ps', '-a', '-q', '--filter', `name=^/${containerName}`], {
       encoding: 'utf-8',
       timeout: 10_000,
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -1051,6 +1070,8 @@ function removeContainerByName(containerName: string): boolean {
 function removeWorkspaceContainer(workspaceRoot: string): boolean {
   const containerName = getWorkspaceContainerName(workspaceRoot)
   if (!containerName) return false
+  // Use a prefix match so we also catch leash-suffixed variants
+  // (e.g. "${name}1", "${name}2") and the leash sidecar ("${name}-leash").
   return removeContainerByName(containerName)
 }
 
@@ -1060,6 +1081,10 @@ function isContainerNameConflictError(stderr: string, workspaceRoot: string): bo
 
   return stderr.includes('is already in use by container')
     && stderr.toLowerCase().includes(containerName.toLowerCase())
+}
+
+function isPortInUseError(stderr: string): boolean {
+  return /port\s+\d+\s+is already in use/.test(stderr)
 }
 
 /** Resolve the user's login shell environment */
@@ -1097,8 +1122,43 @@ export const __test__ = {
   getWorkspaceContainerName,
   removeWorkspaceContainer,
   isContainerNameConflictError,
+  isPortInUseError,
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Async wrapper around child_process.spawn that collects stdout/stderr */
+function spawnAsync(
+  command: string,
+  args: string[],
+  options: { timeout?: number } = {},
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    const stdoutChunks: Buffer[] = []
+    const stderrChunks: Buffer[] = []
+    child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk))
+    child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk))
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    if (options.timeout) {
+      timer = setTimeout(() => {
+        child.kill('SIGKILL')
+      }, options.timeout)
+    }
+
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer)
+      resolve({
+        exitCode: code ?? 1,
+        stdout: Buffer.concat(stdoutChunks).toString('utf-8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf-8'),
+      })
+    })
+  })
 }

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import net from 'node:net'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -41,12 +42,40 @@ describe('isProcessAlive', () => {
 describe('allocatePort', () => {
   // allocatePort reads state files from disk — tested indirectly.
   // With no state files, it should return the start port.
-  it('returns the start port when no sandboxes are tracked', () => {
+  it('returns the start port when no sandboxes are tracked', async () => {
     // This relies on no state files existing in the test environment.
     // In a real test suite you'd mock listStates — for now this is a
     // sanity check that it returns a valid number.
-    const port = allocatePort(9111)
+    const port = await allocatePort(9111)
     expect(port).toBeGreaterThanOrEqual(9111)
+  })
+
+  it('skips a port that is actually in use on the host', async () => {
+    // Bind a real TCP server to a port so get-port sees it as unavailable
+    const server = net.createServer()
+    await new Promise<void>((resolve) => server.listen(9211, '127.0.0.1', resolve))
+    try {
+      const port = await allocatePort(9211)
+      // Should skip 9211 since it's occupied
+      expect(port).toBeGreaterThan(9211)
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
+  it('skips a port whose control port (port+1) is in use', async () => {
+    // Occupy port 9312 so that 9311 can't use it as a control port
+    const server = net.createServer()
+    await new Promise<void>((resolve) => server.listen(9312, '127.0.0.1', resolve))
+    try {
+      const port = await allocatePort(9311)
+      // Should skip 9311 because 9312 (control port) is occupied
+      expect(port).toBeGreaterThan(9311)
+      // And the returned port+1 should also be free (not 9312)
+      expect(port).not.toBe(9312)
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   })
 })
 
@@ -150,10 +179,12 @@ describe('state file operations (isolated)', () => {
   it('allocatePort skips ports in use by tracked sandboxes', async () => {
     const { writeState, allocatePort: ap } = await loadState()
     writeState({ workspaceRoot: '/p1', port: 9400, leashPid: process.pid, startedAt: new Date().toISOString() })
-    writeState({ workspaceRoot: '/p2', port: 9401, leashPid: process.pid, startedAt: new Date().toISOString() })
+    writeState({ workspaceRoot: '/p2', port: 9402, leashPid: process.pid, startedAt: new Date().toISOString() })
 
-    const port = ap(9400)
-    expect(port).toBe(9402)
+    // 9400 is used (control port 9401 reserved), 9402 is used (control port 9403 reserved)
+    // First free pair is 9404+9405
+    const port = await ap(9400)
+    expect(port).toBe(9404)
   })
 })
 
