@@ -421,6 +421,7 @@ describe('sandbox image resolution', () => {
       false,
       new Map(),
       null,
+      [],
       undefined,
       undefined,
     )
