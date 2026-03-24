@@ -71,7 +71,7 @@ describe('sandbox image resolution', () => {
     stateMocks.listStates.mockReset()
     stateMocks.listStates.mockReturnValue([])
     stateMocks.allocatePort.mockReset()
-    stateMocks.allocatePort.mockReturnValue(9111)
+    stateMocks.allocatePort.mockResolvedValue(9111)
     stateMocks.acquireLock.mockReset()
     stateMocks.acquireLock.mockReturnValue(true)
     stateMocks.releaseLock.mockReset()

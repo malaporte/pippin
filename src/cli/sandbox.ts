@@ -114,7 +114,7 @@ async function startSandbox(
     removeWorkspaceContainer(workspaceRoot)
   }
 
-  const port = allocatePort(globalConfig.portRangeStart)
+  const port = await allocatePort(globalConfig.portRangeStart)
   writeLockPort(workspaceRoot, port)
   const controlPort = port + 1
   const idleTimeout = workspaceConfig.sandbox?.idle_timeout ?? globalConfig.idleTimeout
