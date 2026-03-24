@@ -1,3 +1,10 @@
+## [0.7.2](https://github.com/malaporte/pippin/compare/v0.7.1...v0.7.2) (2026-03-24)
+
+
+### Bug Fixes
+
+* show clear error when sandbox.init command fails ([#14](https://github.com/malaporte/pippin/issues/14)) ([30eb209](https://github.com/malaporte/pippin/commit/30eb2096003a12b3b72524efca599869984e4e9a))
+
 ## [0.7.1](https://github.com/malaporte/pippin/compare/v0.7.0...v0.7.1) (2026-03-24)
 
 
