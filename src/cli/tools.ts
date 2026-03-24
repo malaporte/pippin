@@ -24,6 +24,13 @@ export interface HostPrepareResult {
    * needed for non-interactive auth) without modifying the user's original.
    */
   dotfileOverrides?: Record<string, string>
+  /**
+   * Additional volume mounts to add to the sandbox container.
+   * Used for paths that are discovered dynamically at sandbox start time
+   * (e.g. the pnpm content-addressable store, whose location varies by
+   * platform and user configuration).
+   */
+  extraMounts?: Array<{ path: string; readonly?: boolean }>
 }
 
 export interface ToolRecipe {
@@ -482,8 +489,73 @@ function prepareSSH(_shellEnv: Record<string, string>): HostPrepareResult | unde
   }
 }
 
+// --- pnpm host-side preparation ---
+
+/**
+ * Detect the host's pnpm content-addressable store and mount it into the
+ * sandbox so that `pnpm install` inside the container reuses cached packages
+ * instead of re-downloading everything on each fresh sandbox start.
+ *
+ * The store location varies by platform and user configuration:
+ *   macOS:  ~/Library/pnpm/store/v3
+ *   Linux:  ~/.local/share/pnpm/store/v3
+ *   custom: wherever $PNPM_HOME points, or the output of `pnpm store path`
+ *
+ * We run `pnpm store path` on the host to get the authoritative location,
+ * then mount it read-write (pnpm writes new packages into the store) and
+ * set PNPM_STORE_DIR inside the container so pnpm uses the mounted path.
+ */
+function preparePnpm(shellEnv: Record<string, string>): HostPrepareResult | undefined {
+  const result = spawnSync('sh', ['-l', '-c', 'pnpm store path'], {
+    encoding: 'utf-8',
+    timeout: 10_000,
+    env: shellEnv,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+
+  const storePath = result.stdout?.trim()
+  if (!storePath || result.status !== 0) return undefined
+
+  // Expand ~ if pnpm returns a tilde-prefixed path
+  const hostStorePath = storePath.startsWith('~') ? expandHome(storePath) : storePath
+
+  if (!fs.existsSync(hostStorePath)) return undefined
+
+  // Compute the container-side path: remap $HOME → /root
+  const hostHome = os.homedir()
+  const containerHome = '/root'
+  const containerStorePath = hostStorePath.startsWith(hostHome)
+    ? containerHome + hostStorePath.slice(hostHome.length)
+    : hostStorePath
+
+  return {
+    extraMounts: [{ path: hostStorePath, readonly: false }],
+    env: { PNPM_STORE_DIR: containerStorePath },
+  }
+}
+
+/**
+ * Resolve the host's pnpm store path for use in config hash computation.
+ * Returns the absolute path, or undefined if pnpm is not installed or the
+ * store path cannot be determined.
+ */
+export function resolvePnpmStorePath(shellEnv: Record<string, string>): string | undefined {
+  const result = spawnSync('sh', ['-l', '-c', 'pnpm store path'], {
+    encoding: 'utf-8',
+    timeout: 10_000,
+    env: shellEnv,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+
+  const storePath = result.stdout?.trim()
+  if (!storePath || result.status !== 0) return undefined
+
+  const hostStorePath = storePath.startsWith('~') ? expandHome(storePath) : storePath
+  return fs.existsSync(hostStorePath) ? hostStorePath : undefined
+}
+
 // Exported for testing
-export { parseSimpleToml as _parseSimpleToml, injectCredentialCacheSetting as _injectCredentialCacheSetting, prepareSSH as _prepareSSH, discoverIdentityFiles as _discoverIdentityFiles, ensureAgentHasKeys as _ensureAgentHasKeys }
+export { parseSimpleToml as _parseSimpleToml, injectCredentialCacheSetting as _injectCredentialCacheSetting, prepareSSH as _prepareSSH, discoverIdentityFiles as _discoverIdentityFiles, ensureAgentHasKeys as _ensureAgentHasKeys, preparePnpm as _preparePnpm }
 
 export const RECIPES: Record<string, ToolRecipe> = {
   git: {
@@ -543,6 +615,15 @@ export const RECIPES: Record<string, ToolRecipe> = {
       { path: '~/.npmrc', readonly: true },
     ],
     environment: ['NPM_TOKEN', 'NPM_CONFIG_REGISTRY'],
+  },
+  pnpm: {
+    name: 'pnpm',
+    dotfiles: [
+      // pnpm respects ~/.npmrc for registry and auth settings
+      { path: '~/.npmrc', readonly: true },
+    ],
+    environment: ['NPM_TOKEN', 'NPM_CONFIG_REGISTRY', 'PNPM_HOME'],
+    hostPrepare: preparePnpm,
   },
   ssh: {
     name: 'SSH',
@@ -616,6 +697,12 @@ export interface ToolRequirements {
   warnings: string[]
   /** Host-side prepare functions to run at sandbox start */
   hostPrepares: Array<(shellEnv: Record<string, string>) => HostPrepareResult | undefined>
+  /**
+   * Extra volume mounts collected from hostPrepare results.
+   * Populated after hostPrepares have been run (in sandbox.ts, not here).
+   * Declared here so the type flows through cleanly.
+   */
+  extraMounts: Array<{ path: string; readonly?: boolean }>
 }
 
 /**
@@ -707,5 +794,6 @@ export function resolveToolRequirements(tools: string[]): ToolRequirements {
     gpgAgent,
     warnings,
     hostPrepares,
+    extraMounts: [],
   }
 }

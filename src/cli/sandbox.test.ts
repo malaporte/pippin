@@ -39,6 +39,7 @@ const policyMocks = {
 
 const toolMocks = {
   resolveToolRequirements: vi.fn(),
+  resolvePnpmStorePath: vi.fn(),
 }
 
 vi.mock('node:child_process', () => childProcessMocks)
@@ -189,6 +190,7 @@ describe('sandbox image resolution', () => {
       false,
       new Map(),
       null,
+      [],
       undefined,
       undefined,
     )
@@ -211,6 +213,7 @@ describe('sandbox image resolution', () => {
       false,
       new Map(),
       null,
+      [],
       undefined,
       undefined,
     )
