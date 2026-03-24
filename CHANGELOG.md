@@ -1,3 +1,10 @@
+## [0.7.3](https://github.com/malaporte/pippin/compare/v0.7.2...v0.7.3) (2026-03-24)
+
+
+### Bug Fixes
+
+* **sandbox:** chmod 700 /root/.gnupg at bootstrap to fix GPG agent forwarding ([#15](https://github.com/malaporte/pippin/issues/15)) ([86535b9](https://github.com/malaporte/pippin/commit/86535b937f53e811cfaa952af8d9c6e3da74d92b))
+
 ## [0.7.2](https://github.com/malaporte/pippin/compare/v0.7.1...v0.7.2) (2026-03-24)
 
 
