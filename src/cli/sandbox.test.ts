@@ -266,28 +266,31 @@ describe('sandbox image resolution', () => {
     expect(nameB).toMatch(/^my-project-[0-9a-f]{8}$/)
   })
 
-  it('removes a stale container matching the current workspace name', async () => {
+  it('removes stale containers matching the workspace name prefix (target, leash sidecar, and suffixed variants)', async () => {
     const workspacePath = '/tmp/Stale-sandbox'
     const expectedName = `stale-sandbox-${crypto.createHash('sha256').update(path.resolve(workspacePath)).digest('hex').slice(0, 8)}`
 
     childProcessMocks.spawnSync
-      .mockReturnValueOnce({ status: 0, stdout: 'container-id\n', stderr: '' })
+      // docker ps prefix match finds target + leash sidecar + suffixed variants
+      .mockReturnValueOnce({ status: 0, stdout: 'id1\nid2\nid3\n', stderr: '' })
+      // docker rm removes all of them
       .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' })
 
     const { __test__ } = await import('./sandbox')
     const removed = __test__.removeWorkspaceContainer(workspacePath)
 
     expect(removed).toBe(true)
+    // Prefix match (no trailing $) catches target, leash sidecar, and suffixed variants
     expect(childProcessMocks.spawnSync).toHaveBeenNthCalledWith(
       1,
       'docker',
-      ['ps', '-a', '-q', '--filter', `name=^/${expectedName}$`],
+      ['ps', '-a', '-q', '--filter', `name=^/${expectedName}`],
       expect.objectContaining({ timeout: 10_000 }),
     )
     expect(childProcessMocks.spawnSync).toHaveBeenNthCalledWith(
       2,
       'docker',
-      ['rm', '-fv', 'container-id'],
+      ['rm', '-fv', 'id1', 'id2', 'id3'],
       expect.objectContaining({ timeout: 10_000 }),
     )
   })
@@ -303,7 +306,7 @@ describe('sandbox image resolution', () => {
       .mockResolvedValueOnce(true)
 
     childProcessMocks.spawnSync.mockImplementation((command: string, args: string[]) => {
-      if (command === 'docker' && args[0] === 'ps' && args[4] === `name=^/${expectedName}$`) {
+      if (command === 'docker' && args[0] === 'ps' && args[4] === `name=^/${expectedName}`) {
         return { status: 0, stdout: 'stale-id\n', stderr: '' }
       }
       if (command === 'docker' && args[0] === 'rm') {
@@ -346,6 +349,86 @@ describe('sandbox image resolution', () => {
       port: 9111,
       leashPid: 2222,
     }))
+  })
+
+  it('retries sandbox startup once after a port-in-use error from leash', async () => {
+    const workspaceRoot = path.join(tmpDir, 'port-conflict')
+    fs.mkdirSync(workspaceRoot)
+
+    const portError = '2026/03/24 09:02:50 host port 9117 is already in use; choose a different host port or omit it to auto-pick'
+    stateMocks.isServerHealthy
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+
+    // Second allocatePort call returns a different port
+    stateMocks.allocatePort
+      .mockResolvedValueOnce(9116)
+      .mockResolvedValueOnce(9200)
+
+    childProcessMocks.spawnSync.mockReturnValue({ status: 0, stdout: '', stderr: '' })
+
+    let firstLeashCalled = false
+    childProcessMocks.spawn.mockImplementation(
+      (command: string) => {
+        if (command === 'docker') {
+          return createSimpleProcess({ exitCode: 0 })
+        }
+        if (!firstLeashCalled) {
+          firstLeashCalled = true
+          return createLeashProcess({ stderr: portError, exitCode: 1, pid: 1111 })
+        }
+        return createLeashProcess({ pid: 2222 })
+      },
+    )
+
+    const { __test__ } = await import('./sandbox')
+    await expect(__test__.startSandbox(workspaceRoot, {})).resolves.toBe(9200)
+
+    const leashSpawns = childProcessMocks.spawn.mock.calls.filter(
+      (call: unknown[]) => call[0] !== 'docker',
+    )
+    expect(leashSpawns).toHaveLength(2)
+
+    expect(stateMocks.writeState).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceRoot,
+      port: 9200,
+      leashPid: 2222,
+    }))
+  })
+
+  it('isPortInUseError matches leash port-in-use messages', async () => {
+    const { __test__ } = await import('./sandbox')
+
+    expect(__test__.isPortInUseError('2026/03/24 09:02:50 host port 9117 is already in use; choose a different host port')).toBe(true)
+    expect(__test__.isPortInUseError('port 9111 is already in use')).toBe(true)
+    expect(__test__.isPortInUseError('some other error')).toBe(false)
+    expect(__test__.isPortInUseError('')).toBe(false)
+  })
+
+  it('binds Docker port and leash control port to 127.0.0.1 only', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      {},
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      null,
+      undefined,
+      undefined,
+    )
+
+    // -p should bind to loopback only
+    const pIdx = args.indexOf('-p')
+    expect(args[pIdx + 1]).toBe('127.0.0.1:9111:9111')
+
+    // -l should bind to loopback only
+    const lIdx = args.indexOf('-l')
+    expect(args[lIdx + 1]).toBe('127.0.0.1:9112')
   })
 })
 
