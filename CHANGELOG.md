@@ -1,3 +1,10 @@
+## [0.6.4](https://github.com/malaporte/pippin/compare/v0.6.3...v0.6.4) (2026-03-24)
+
+
+### Bug Fixes
+
+* bind sandbox ports to loopback, retry on port conflicts, and clean up all leash containers ([#11](https://github.com/malaporte/pippin/issues/11)) ([254b5fd](https://github.com/malaporte/pippin/commit/254b5fdebefb72e4b935e58b2ce027b164c17e15))
+
 ## [0.6.3](https://github.com/malaporte/pippin/compare/v0.6.2...v0.6.3) (2026-03-24)
 
 
