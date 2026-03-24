@@ -342,6 +342,9 @@ async function startSandbox(
       })
       const dockerLog = [result.stdout, result.stderr].filter(Boolean).join('').trim()
       if (dockerLog) {
+        if (dockerLog.includes('pippin: sandbox.init command failed')) {
+          process.stderr.write('pippin: sandbox.init command failed — check your workspace init script\n')
+        }
         process.stderr.write(`\n--- container log (docker logs ${logContainerName}) ---\n`)
         process.stderr.write(dockerLog + '\n')
         process.stderr.write('--- end container log ---\n')
@@ -805,20 +808,18 @@ function buildLeashArgs(
     args.push('-v', mountSpec)
   }
 
-  // Add extra mounts from workspace config
+  // Add extra mounts from workspace config.
+  // These are arbitrary project paths — mount at the original host path so
+  // the container sees them at the same absolute path (identity mapping).
   const extraMounts = workspaceConfig.sandbox?.mounts ?? []
   for (const mount of extraMounts) {
     const expanded = expandHome(mount.path)
     if (!fs.existsSync(expanded)) continue
     if (mountedPaths.has(expanded)) continue
     mountedPaths.add(expanded)
-    // Map ~/foo → /root/foo inside the container
-    const containerPath = expanded.startsWith(hostHome)
-      ? containerHome + expanded.slice(hostHome.length)
-      : expanded
     const mountSpec = mount.readonly
-      ? `${expanded}:${containerPath}:ro`
-      : `${expanded}:${containerPath}`
+      ? `${expanded}:${expanded}:ro`
+      : `${expanded}:${expanded}`
     args.push('-v', mountSpec)
   }
 
@@ -929,7 +930,11 @@ function buildLeashArgs(
     // socket or pubring files), it uses 755. Fix that up at startup so that
     // gpg-agent forwarding works without the "unsafe permissions" warning.
     `if [ -d /root/.gnupg ]; then chmod 700 /root/.gnupg; fi`,
-    ...(workspaceInit ? [workspaceInit] : []),
+    ...(workspaceInit
+      ? [
+          `if ! ( ${workspaceInit} ); then echo "pippin: sandbox.init command failed" >&2; exit 1; fi`,
+        ]
+      : []),
     'exec /leash/pippin-server',
   ].join(' && ')
   args.push('--', 'sh', '-c', bootstrap)

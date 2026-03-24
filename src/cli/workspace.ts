@@ -154,6 +154,15 @@ function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
       config.sandbox.host_commands = sandbox.host_commands
         .filter((c): c is string => typeof c === 'string' && c.length > 0)
     }
+
+    if (typeof sandbox.ssh_agent === 'boolean') {
+      config.sandbox.ssh_agent = sandbox.ssh_agent
+    }
+
+    if (Array.isArray(sandbox.tools)) {
+      config.sandbox.tools = sandbox.tools
+        .filter((t): t is string => typeof t === 'string' && t.length > 0)
+    }
   }
 
   return config

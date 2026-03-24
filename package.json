@@ -1,6 +1,6 @@
 {
   "name": "pippin",
-  "version": "0.6.4",
+  "version": "0.7.2",
   "type": "module",
   "bin": {
     "pippin": "src/cli/index.ts"

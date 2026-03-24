@@ -1,3 +1,29 @@
+## [0.7.2](https://github.com/malaporte/pippin/compare/v0.7.1...v0.7.2) (2026-03-24)
+
+
+### Bug Fixes
+
+* show clear error when sandbox.init command fails ([#14](https://github.com/malaporte/pippin/issues/14)) ([30eb209](https://github.com/malaporte/pippin/commit/30eb2096003a12b3b72524efca599869984e4e9a))
+
+## [0.7.1](https://github.com/malaporte/pippin/compare/v0.7.0...v0.7.1) (2026-03-24)
+
+
+### Bug Fixes
+
+* **sandbox:** use identity mapping for sandbox.mounts, parse ssh_agent and tools from config ([#13](https://github.com/malaporte/pippin/issues/13)) ([cc9d0e1](https://github.com/malaporte/pippin/commit/cc9d0e17769ad30b56a252c65419faaf8f277136))
+
+# [0.7.0](https://github.com/malaporte/pippin/compare/v0.6.4...v0.7.0) (2026-03-24)
+
+
+### Bug Fixes
+
+* pass empty array for toolExtraMounts in loopback binding test ([bea54cd](https://github.com/malaporte/pippin/commit/bea54cd5d2511232a9b29771dac74fa473e0be13))
+
+
+### Features
+
+* **tools:** add pnpm recipe to mount host store into sandbox ([#12](https://github.com/malaporte/pippin/issues/12)) ([6bc0af5](https://github.com/malaporte/pippin/commit/6bc0af598be0b3be3ef9633362729411b5b9cb58))
+
 ## [0.6.4](https://github.com/malaporte/pippin/compare/v0.6.3...v0.6.4) (2026-03-24)
 
 
