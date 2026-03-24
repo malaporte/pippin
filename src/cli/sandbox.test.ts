@@ -408,6 +408,63 @@ describe('sandbox image resolution', () => {
     expect(__test__.isPortInUseError('')).toBe(false)
   })
 
+  it('mounts sandbox.mounts paths at their original host path (identity mapping)', async () => {
+    const { __test__ } = await import('./sandbox')
+
+    // Use a real path that exists on disk
+    const mountPath = tmpDir
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      { sandbox: { mounts: [{ path: mountPath, readonly: true }] } },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      null,
+      [],
+      undefined,
+      undefined,
+    )
+
+    // Identity mapping: host path == container path
+    const vIdx = args.indexOf('-v')
+    expect(args[vIdx + 1]).toBe(`${mountPath}:${mountPath}:ro`)
+  })
+
+  it('mounts sandbox.mounts paths without remapping ~ to /root', async () => {
+    const { __test__ } = await import('./sandbox')
+
+    // expandHome is mocked to be identity by default; set it to expand ~ to tmpDir
+    configMocks.expandHome.mockImplementation((p: string) =>
+      p === '~/mylibs' ? tmpDir : p,
+    )
+
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      { sandbox: { mounts: [{ path: '~/mylibs' }] } },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      null,
+      [],
+      undefined,
+      undefined,
+    )
+
+    configMocks.expandHome.mockImplementation((p: string) => p)
+
+    // Should be identity mapped to the expanded path, NOT remapped to /root/...
+    const vIdx = args.indexOf('-v')
+    expect(args[vIdx + 1]).toBe(`${tmpDir}:${tmpDir}`)
+  })
+
   it('binds Docker port and leash control port to 127.0.0.1 only', async () => {
     const { __test__ } = await import('./sandbox')
     const args = __test__.buildLeashArgs(
