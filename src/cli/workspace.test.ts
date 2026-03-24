@@ -206,6 +206,78 @@ idle_timeout = 300
     expect(result).not.toBeNull()
     expect(result!.config.sandbox?.host_commands).toBeUndefined()
   })
+
+  it('parses ssh_agent from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+ssh_agent = true
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.ssh_agent).toBe(true)
+  })
+
+  it('parses ssh_agent = false from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+ssh_agent = false
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.ssh_agent).toBe(false)
+  })
+
+  it('ignores non-boolean ssh_agent in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+ssh_agent = "yes"
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.ssh_agent).toBeUndefined()
+  })
+
+  it('parses tools from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+tools = ["git", "gh", "aws"]
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.tools).toEqual(['git', 'gh', 'aws'])
+  })
+
+  it('filters invalid tools entries', () => {
+    const toml = `
+[sandbox]
+tools = ["git", 42, "aws"]
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.tools).toEqual(['git', 'aws'])
+  })
+
+  it('omits tools when not present in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+idle_timeout = 300
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.tools).toBeUndefined()
+  })
 })
 
 describe('resolveWorkspace', () => {

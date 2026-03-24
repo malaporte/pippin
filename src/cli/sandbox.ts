@@ -805,20 +805,18 @@ function buildLeashArgs(
     args.push('-v', mountSpec)
   }
 
-  // Add extra mounts from workspace config
+  // Add extra mounts from workspace config.
+  // These are arbitrary project paths — mount at the original host path so
+  // the container sees them at the same absolute path (identity mapping).
   const extraMounts = workspaceConfig.sandbox?.mounts ?? []
   for (const mount of extraMounts) {
     const expanded = expandHome(mount.path)
     if (!fs.existsSync(expanded)) continue
     if (mountedPaths.has(expanded)) continue
     mountedPaths.add(expanded)
-    // Map ~/foo → /root/foo inside the container
-    const containerPath = expanded.startsWith(hostHome)
-      ? containerHome + expanded.slice(hostHome.length)
-      : expanded
     const mountSpec = mount.readonly
-      ? `${expanded}:${containerPath}:ro`
-      : `${expanded}:${containerPath}`
+      ? `${expanded}:${expanded}:ro`
+      : `${expanded}:${expanded}`
     args.push('-v', mountSpec)
   }
 
