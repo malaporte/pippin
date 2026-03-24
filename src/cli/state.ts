@@ -2,6 +2,7 @@ import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
+import getPort from 'get-port'
 import type { SandboxState } from '../shared/types'
 
 const STATE_DIR = path.join(os.homedir(), '.local', 'state', 'pippin', 'sandboxes')
@@ -188,12 +189,17 @@ export function releaseLock(workspaceRoot: string): void {
 }
 
 /**
- * Allocate the next available port starting from portRangeStart,
- * skipping ports already in use by tracked sandboxes and ports
- * reserved by in-flight sandbox starts (recorded in lock files).
+ * Collect ports reserved by pippin (tracked sandboxes + in-flight lock files).
+ * Returns a Set containing both the primary port and its control port (port+1)
+ * for each reservation, so that neither slot can be reused.
  */
-export function allocatePort(portRangeStart: number): number {
-  const usedPorts = new Set(listStates().map((s) => s.port))
+function reservedPorts(): Set<number> {
+  const used = new Set<number>()
+
+  for (const s of listStates()) {
+    used.add(s.port)
+    used.add(s.port + 1)
+  }
 
   // Also check lock files for ports reserved by in-flight starts
   try {
@@ -206,7 +212,8 @@ export function allocatePort(portRangeStart: number): number {
         if (parts.length >= 2) {
           const port = parseInt(parts[1], 10)
           if (!isNaN(port)) {
-            usedPorts.add(port)
+            used.add(port)
+            used.add(port + 1)
           }
         }
       } catch {
@@ -217,9 +224,44 @@ export function allocatePort(portRangeStart: number): number {
     // STATE_DIR may not exist yet; ignore
   }
 
-  let port = portRangeStart
-  while (usedPorts.has(port)) {
-    port++
+  return used
+}
+
+/**
+ * Allocate the next available port starting from portRangeStart,
+ * skipping ports already in use by tracked sandboxes, ports reserved
+ * by in-flight sandbox starts (recorded in lock files), and ports
+ * that are actually bound on the host OS.
+ *
+ * Both the primary port and the control port (port+1) are verified
+ * to be free before returning.
+ */
+export async function allocatePort(portRangeStart: number): Promise<number> {
+  const excluded = reservedPorts()
+
+  let candidate = portRangeStart
+  while (candidate < portRangeStart + 1000) {
+    if (excluded.has(candidate) || excluded.has(candidate + 1)) {
+      candidate++
+      continue
+    }
+
+    // Verify both the primary port and control port are actually free on the host
+    const primary = await getPort({ port: candidate, host: '127.0.0.1' })
+    if (primary !== candidate) {
+      candidate++
+      continue
+    }
+
+    const control = await getPort({ port: candidate + 1, host: '127.0.0.1' })
+    if (control !== candidate + 1) {
+      candidate++
+      continue
+    }
+
+    return candidate
   }
-  return port
+
+  // Fallback: let get-port pick any available port
+  return getPort({ host: '127.0.0.1' })
 }
