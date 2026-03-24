@@ -342,6 +342,9 @@ async function startSandbox(
       })
       const dockerLog = [result.stdout, result.stderr].filter(Boolean).join('').trim()
       if (dockerLog) {
+        if (dockerLog.includes('pippin: sandbox.init command failed')) {
+          process.stderr.write('pippin: sandbox.init command failed — check your workspace init script\n')
+        }
         process.stderr.write(`\n--- container log (docker logs ${logContainerName}) ---\n`)
         process.stderr.write(dockerLog + '\n')
         process.stderr.write('--- end container log ---\n')
@@ -924,7 +927,11 @@ function buildLeashArgs(
     // The cache dir must be 0700 and the file 0600 for the connector to
     // accept them.
     `if [ -n "$SNOWFLAKE_ID_TOKEN" ] && [ -n "$SNOWFLAKE_TOKEN_HASH_KEY" ]; then mkdir -p ${SF_CACHE_DIR} && chmod 700 ${SF_CACHE_DIR} && printf '{"tokens":{"%s":"%s"}}' "$SNOWFLAKE_TOKEN_HASH_KEY" "$SNOWFLAKE_ID_TOKEN" > ${SF_CACHE_FILE} && chmod 600 ${SF_CACHE_FILE}; fi`,
-    ...(workspaceInit ? [workspaceInit] : []),
+    ...(workspaceInit
+      ? [
+          `if ! ( ${workspaceInit} ); then echo "pippin: sandbox.init command failed" >&2; exit 1; fi`,
+        ]
+      : []),
     'exec /leash/pippin-server',
   ].join(' && ')
   args.push('--', 'sh', '-c', bootstrap)
