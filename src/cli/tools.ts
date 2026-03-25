@@ -654,6 +654,13 @@ export const RECIPES: Record<string, ToolRecipe> = {
     // `codex login` with file-based credential storage get auth.json mounted instead.
     environment: ['OPENAI_API_KEY'],
   },
+  jira: {
+    name: 'Jira CLI',
+    dotfiles: [
+      { path: '~/.config/.jira/.config.yml', readonly: true },
+    ],
+    environment: ['JIRA_API_TOKEN'],
+  },
   copilot: {
     name: 'GitHub Copilot CLI',
     // Mount the Copilot CLI config (trusted folders, settings). On headless systems
