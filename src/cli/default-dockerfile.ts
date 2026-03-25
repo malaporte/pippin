@@ -29,6 +29,15 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -
 RUN pipx install --include-deps snowflake-cli-labs \
     && ln -sf /root/.local/bin/snow /usr/local/bin/snow
 
+# Jira CLI
+RUN JIRA_VERSION=\$(curl -fsSL https://api.github.com/repos/ankitpokhrel/jira-cli/releases/latest \
+      | grep '"tag_name"' | sed 's/.*"v\\([^"]*\\)".*/\\1/') \
+    && ARCH=\$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/arm64/') \
+    && curl -fsSL "https://github.com/ankitpokhrel/jira-cli/releases/download/v\${JIRA_VERSION}/jira_\${JIRA_VERSION}_linux_\${ARCH}.tar.gz" \
+      | tar -xz -C /tmp \
+    && mv /tmp/jira_\${JIRA_VERSION}_linux_\${ARCH}/bin/jira /usr/local/bin/jira \
+    && rm -rf /tmp/jira_*
+
 # GitHub Copilot CLI
 RUN curl -fsSL https://gh.io/copilot-install | bash
 
