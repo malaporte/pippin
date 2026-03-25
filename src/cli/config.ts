@@ -3,6 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { DEFAULT_IDLE_TIMEOUT, DEFAULT_PORT } from '../shared/types'
 import type { GlobalConfig, DotfileEntry } from '../shared/types'
+import { KNOWN_TOOLS } from './tools'
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'pippin')
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
@@ -19,7 +20,7 @@ export function readGlobalConfig(): ResolvedGlobalConfig {
     environment: [],
     hostCommands: [],
     sshAgent: false,
-    tools: [],
+    tools: [...KNOWN_TOOLS],
     shell: 'bash',
     image: undefined,
     dockerfile: undefined,
