@@ -1,3 +1,10 @@
+# [0.8.0](https://github.com/malaporte/pippin/compare/v0.7.3...v0.8.0) (2026-03-25)
+
+
+### Features
+
+* add Jira CLI to default sandbox and tool recipe ([#16](https://github.com/malaporte/pippin/issues/16)) ([83799ce](https://github.com/malaporte/pippin/commit/83799ced889ee220965d3b4d26a2d967ff044238))
+
 ## [0.7.3](https://github.com/malaporte/pippin/compare/v0.7.2...v0.7.3) (2026-03-24)
 
 
