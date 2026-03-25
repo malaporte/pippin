@@ -282,15 +282,16 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
     expect(cfg.tools).toEqual(['git', 'gh', 'aws'])
   })
 
-  it('defaults tools to empty array when not present', async () => {
+  it('defaults tools to all known tools when not present', async () => {
     const cfgDir = path.join(tmpDir, '.config', 'pippin')
     fs.mkdirSync(cfgDir, { recursive: true })
     fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({ idleTimeout: 300 }))
 
     const v = Date.now()
     const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const { KNOWN_TOOLS } = await import(/* @vite-ignore */ `./tools.ts?v=${v}`)
     const cfg = readGlobalConfig()
-    expect(cfg.tools).toEqual([])
+    expect(cfg.tools).toEqual(KNOWN_TOOLS)
   })
 
   it('filters out invalid tools entries', async () => {
@@ -309,7 +310,7 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
     expect(cfg.tools).toEqual(['git', 'aws'])
   })
 
-  it('defaults tools to empty array when value is not an array', async () => {
+  it('defaults tools to all known tools when value is not an array', async () => {
     const cfgDir = path.join(tmpDir, '.config', 'pippin')
     fs.mkdirSync(cfgDir, { recursive: true })
     fs.writeFileSync(
@@ -319,7 +320,8 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
 
     const v = Date.now()
     const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const { KNOWN_TOOLS } = await import(/* @vite-ignore */ `./tools.ts?v=${v}`)
     const cfg = readGlobalConfig()
-    expect(cfg.tools).toEqual([])
+    expect(cfg.tools).toEqual(KNOWN_TOOLS)
   })
 })
