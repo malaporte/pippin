@@ -273,7 +273,7 @@ async function startSandbox(
   const worktreeMainRepo = resolveWorktreeMainRepo(workspaceRoot)
 
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, installPlan, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, worktreeMainRepo, toolExtraMounts, resolvedImage, resolvedPolicy)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, installPlan, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, worktreeMainRepo, toolExtraMounts, resolvedImage, resolvedPolicy, toolReqs.containerEnvironment)
 
   const spinnerMessage = installPlan.command
     ? formatInstallProgressMessage(installPlan)
@@ -822,6 +822,7 @@ function buildLeashArgs(
   toolExtraMounts: Array<{ path: string; containerPath?: string; readonly?: boolean }>,
   image?: string,
   policy?: string,
+  containerEnvironment?: Record<string, string>,
 ): string[] {
   const installCommand = installPlan.command
   const args: string[] = [
@@ -913,6 +914,13 @@ function buildLeashArgs(
 
   // Set the pippin-server port and idle timeout via env
   args.push('-e', `PIPPIN_PORT=${port}`)
+
+  // Inject container-side environment defaults from tool recipes.
+  // These are set unconditionally; host-forwarded vars below can override them
+  // if the same key appears in `environment` and is present on the host.
+  for (const [name, value] of Object.entries(containerEnvironment ?? {})) {
+    args.push('-e', `${name}=${value}`)
+  }
 
   // Forward host environment variables from the global config
   for (const name of environment) {
@@ -1323,11 +1331,39 @@ function detectJsPackageManagerInstall(workspaceRoot: string): {
 }
 
 /**
+ * Returns true if pyproject.toml defines a `setup` script under
+ * [tool.uv.scripts] or [project.scripts]. Both sections are checked because
+ * uv treats both as runnable via `uv run setup`.
+ */
+function hasUvSetupScript(pyprojectPath: string): boolean {
+  try {
+    const content = fs.readFileSync(pyprojectPath, 'utf-8')
+    let inSetupSection = false
+    for (const rawLine of content.split('\n')) {
+      const line = rawLine.trim()
+      if (line.startsWith('[')) {
+        inSetupSection = line === '[tool.uv.scripts]' || line === '[project.scripts]'
+        continue
+      }
+      if (inSetupSection && /^setup\s*=/.test(line)) return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
  * Detect Python project files and return an install plan for uv.
  *
  * Detection priority:
  *   1. uv.lock present → `uv sync` (installs into project-local .venv)
  *   2. requirements.txt present (no uv.lock) → `uv pip install -r requirements.txt`
+ *
+ * In both cases, if pyproject.toml defines a `setup` script under
+ * [tool.uv.scripts] or [project.scripts], `uv run setup` is prepended so
+ * project-specific setup (editable installs, code generation, etc.) runs
+ * before the lockfile sync.
  *
  * pyproject.toml alone (without uv.lock) is intentionally not detected —
  * it could belong to any build system (poetry, hatch, flit, setuptools) and
@@ -1349,13 +1385,15 @@ function detectPythonPackageManagerInstall(workspaceRoot: string): {
 
   if (!hasUvLock && !hasRequirements) return null
 
+  const setupSuffix = hasPyproject && hasUvSetupScript(pyprojectPath) ? ' && uv run setup' : ''
+
   if (hasUvLock) {
     const fingerprintParts = [
       `install-uv-lock:${hashFileIfExists(uvLockPath) ?? 'missing'}`,
       `install-pyproject:${hashFileIfExists(pyprojectPath) ?? 'missing'}`,
     ]
     return {
-      command: 'uv sync',
+      command: `uv sync${setupSuffix}`,
       tool: 'uv',
       fingerprintParts,
     }
@@ -1367,7 +1405,7 @@ function detectPythonPackageManagerInstall(workspaceRoot: string): {
     ...(hasPyproject ? [`install-pyproject:${hashFileIfExists(pyprojectPath) ?? 'missing'}`] : []),
   ]
   return {
-    command: 'uv pip install -r requirements.txt',
+    command: `uv pip install -r requirements.txt${setupSuffix}`,
     tool: 'uv',
     fingerprintParts,
   }
