@@ -40,10 +40,14 @@ const policyMocks = {
 const toolMocks = {
   resolveToolRequirements: vi.fn(),
   resolvePnpmStorePath: vi.fn(),
+  RECIPES: {},
+  KNOWN_TOOLS: [],
 }
 
 const leashMocks = {
   ensureLeash: vi.fn().mockResolvedValue('/usr/local/bin/leash'),
+  findLeash: vi.fn().mockReturnValue('/usr/local/bin/leash'),
+  getLeashVersion: vi.fn().mockReturnValue('1.0.0'),
 }
 
 vi.mock('node:child_process', () => childProcessMocks)
@@ -196,6 +200,7 @@ describe('sandbox image resolution', () => {
       9111,
       9112,
       { sandbox: { init: 'bun install' } },
+      { source: 'init', command: 'bun install', tool: 'bun', fingerprintParts: [] },
       [],
       [],
       {},
@@ -210,7 +215,31 @@ describe('sandbox image resolution', () => {
 
     expect(args.slice(-4, -1)).toEqual(['--', 'sh', '-c'])
     expect(args.at(-1)).toContain('bun install')
+    expect(args.at(-1)).toContain('BOOTSTRAP_LOG=/leash/bootstrap.log')
     expect(args.at(-1)).toContain('exec /leash/pippin-server')
+  })
+
+  it('includes pnpm diagnostics before auto-detected installs', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      {},
+      { source: 'detected', command: 'pnpm install', tool: 'pnpm', fingerprintParts: [] },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      null,
+      [],
+      undefined,
+      undefined,
+    )
+
+    expect(args.at(-1)).toContain('BOOTSTRAP_LOG=/leash/bootstrap.log')
+    expect(args.at(-1)).toContain('pnpm install')
   })
 
   it('prefers the gpg extra socket when forwarding agent access', async () => {
@@ -234,6 +263,7 @@ describe('sandbox image resolution', () => {
       9111,
       9112,
       {},
+      { source: 'none', fingerprintParts: [] },
       [],
       [],
       {},
@@ -270,6 +300,7 @@ describe('sandbox image resolution', () => {
       9111,
       9112,
       {},
+      { source: 'none', fingerprintParts: [] },
       [],
       [],
       {},
@@ -327,6 +358,7 @@ describe('sandbox image resolution', () => {
       9111,
       9112,
       {},
+      { source: 'none', fingerprintParts: [] },
       [],
       [],
       {},
@@ -356,6 +388,87 @@ describe('sandbox image resolution', () => {
     const withInit = await __test__.computeConfigHash(tmpDir, { sandbox: { init: 'bun install' } }, defaultGlobalConfig())
 
     expect(withInit).not.toBe(withoutInit)
+  })
+
+  it('auto-detects pnpm install from packageManager and adds pnpm tool support', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ packageManager: 'pnpm@10.0.0' }))
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.source).toBe('detected')
+    expect(plan.command).toBe('pnpm install')
+    expect(plan.tool).toBe('pnpm')
+  })
+
+  it('prefers install_command over auto-detection', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ packageManager: 'pnpm@10.0.0' }))
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {
+      sandbox: { install_command: 'pnpm install --frozen-lockfile' },
+    })
+
+    expect(plan.source).toBe('install_command')
+    expect(plan.command).toBe('pnpm install --frozen-lockfile')
+  })
+
+  it('disables auto-detection when auto_install is false', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ packageManager: 'bun@1.2.0' }))
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, { sandbox: { auto_install: false } })
+
+    expect(plan.source).toBe('disabled')
+    expect(plan.command).toBeUndefined()
+  })
+
+  it('skips auto-detection for conflicting lockfiles without packageManager', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'demo' }))
+    fs.writeFileSync(path.join(tmpDir, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n')
+    fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '{"name":"demo"}\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.source).toBe('none')
+    expect(plan.command).toBeUndefined()
+    expect(plan.warning).toContain('conflicting lockfiles')
+  })
+
+  it('changes the config hash when the detected lockfile changes', async () => {
+    childProcessMocks.spawn
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'demo' }))
+    const lockfile = path.join(tmpDir, 'pnpm-lock.yaml')
+    fs.writeFileSync(lockfile, 'lockfileVersion: 9.0\n')
+
+    const { __test__ } = await import('./sandbox')
+    const firstHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    fs.writeFileSync(lockfile, 'lockfileVersion: 9.0\npackages:\n  foo: 1\n')
+    const secondHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    expect(secondHash).not.toBe(firstHash)
+  })
+
+  it('changes the config hash when packageManager changes', async () => {
+    childProcessMocks.spawn
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+
+    const packageJson = path.join(tmpDir, 'package.json')
+    fs.writeFileSync(packageJson, JSON.stringify({ packageManager: 'pnpm@10.0.0' }))
+
+    const { __test__ } = await import('./sandbox')
+    const firstHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    fs.writeFileSync(packageJson, JSON.stringify({ packageManager: 'bun@1.2.0' }))
+    const secondHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    expect(secondHash).not.toBe(firstHash)
   })
 
   it('derives the workspace container name from the directory name with a path hash suffix', async () => {
@@ -525,6 +638,7 @@ describe('sandbox image resolution', () => {
       9111,
       9112,
       { sandbox: { mounts: [{ path: mountPath, readonly: true }] } },
+      { source: 'none', fingerprintParts: [] },
       [],
       [],
       {},
@@ -554,6 +668,7 @@ describe('sandbox image resolution', () => {
       9111,
       9112,
       { sandbox: { mounts: [{ path: '~/mylibs' }] } },
+      { source: 'none', fingerprintParts: [] },
       [],
       [],
       {},
@@ -579,6 +694,7 @@ describe('sandbox image resolution', () => {
       9111,
       9112,
       {},
+      { source: 'none', fingerprintParts: [] },
       [],
       [],
       {},

@@ -30,7 +30,7 @@ export interface HostPrepareResult {
    * (e.g. the pnpm content-addressable store, whose location varies by
    * platform and user configuration).
    */
-  extraMounts?: Array<{ path: string; readonly?: boolean }>
+  extraMounts?: Array<{ path: string; containerPath?: string; readonly?: boolean }>
 }
 
 export interface ToolRecipe {
@@ -502,8 +502,9 @@ function prepareSSH(_shellEnv: Record<string, string>): HostPrepareResult | unde
  *   custom: wherever $PNPM_HOME points, or the output of `pnpm store path`
  *
  * We run `pnpm store path` on the host to get the authoritative location,
- * then mount it read-write (pnpm writes new packages into the store) and
- * set PNPM_STORE_DIR inside the container so pnpm uses the mounted path.
+ * then mount it read-write at the same absolute path inside the container.
+ * pnpm records the store path inside node_modules metadata, so preserving the
+ * exact path avoids triggering a full modules-directory rebuild.
  */
 function preparePnpm(shellEnv: Record<string, string>): HostPrepareResult | undefined {
   const result = spawnSync('sh', ['-l', '-c', 'pnpm store path'], {
@@ -521,16 +522,12 @@ function preparePnpm(shellEnv: Record<string, string>): HostPrepareResult | unde
 
   if (!fs.existsSync(hostStorePath)) return undefined
 
-  // Compute the container-side path: remap $HOME → /root
-  const hostHome = os.homedir()
-  const containerHome = '/root'
-  const containerStorePath = hostStorePath.startsWith(hostHome)
-    ? containerHome + hostStorePath.slice(hostHome.length)
-    : hostStorePath
-
   return {
-    extraMounts: [{ path: hostStorePath, readonly: false }],
-    env: { PNPM_STORE_DIR: containerStorePath },
+    extraMounts: [{ path: hostStorePath, containerPath: hostStorePath, readonly: false }],
+    env: {
+      PNPM_STORE_DIR: hostStorePath,
+      npm_config_store_dir: hostStorePath,
+    },
   }
 }
 
@@ -615,6 +612,14 @@ export const RECIPES: Record<string, ToolRecipe> = {
       { path: '~/.npmrc', readonly: true },
     ],
     environment: ['NPM_TOKEN', 'NPM_CONFIG_REGISTRY'],
+  },
+  bun: {
+    name: 'bun',
+    dotfiles: [
+      // Bun respects ~/.npmrc for registry and auth settings
+      { path: '~/.npmrc', readonly: true },
+    ],
+    environment: ['NPM_TOKEN', 'NPM_CONFIG_REGISTRY', 'BUN_INSTALL'],
   },
   pnpm: {
     name: 'pnpm',

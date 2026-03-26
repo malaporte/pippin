@@ -93,6 +93,10 @@ export interface WorkspaceConfig {
     idle_timeout?: number
     /** Shell command to run inside the container each time a fresh sandbox starts */
     init?: string
+    /** Whether to auto-detect and run a package-manager install inside fresh sandboxes */
+    auto_install?: boolean
+    /** Override the auto-detected install command for fresh sandboxes */
+    install_command?: string
     mounts?: MountEntry[]
     /** Override the Docker image used for the sandbox container */
     image?: string
