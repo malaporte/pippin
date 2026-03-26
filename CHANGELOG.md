@@ -1,3 +1,10 @@
+# [0.11.0](https://github.com/malaporte/pippin/compare/v0.10.0...v0.11.0) (2026-03-26)
+
+
+### Features
+
+* **uv:** use linux-specific venv and auto-run setup script ([#20](https://github.com/malaporte/pippin/issues/20)) ([0846cc3](https://github.com/malaporte/pippin/commit/0846cc35fca406974905fd2577b19b2dc640081b))
+
 # [0.10.0](https://github.com/malaporte/pippin/compare/v0.9.0...v0.10.0) (2026-03-26)
 
 
