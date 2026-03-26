@@ -1,3 +1,10 @@
+# [0.9.0](https://github.com/malaporte/pippin/compare/v0.8.1...v0.9.0) (2026-03-26)
+
+
+### Features
+
+* auto-detect and run package-manager install in fresh sandboxes ([#18](https://github.com/malaporte/pippin/issues/18)) ([96cd35e](https://github.com/malaporte/pippin/commit/96cd35e40b871af2fc2ae1e51ef7e43951a5e8a3))
+
 ## [0.8.1](https://github.com/malaporte/pippin/compare/v0.8.0...v0.8.1) (2026-03-26)
 
 
