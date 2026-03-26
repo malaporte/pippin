@@ -471,6 +471,87 @@ describe('sandbox image resolution', () => {
     expect(secondHash).not.toBe(firstHash)
   })
 
+  it('auto-detects uv sync from uv.lock', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), '[project]\nname = "demo"\n')
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.source).toBe('detected')
+    expect(plan.command).toBe('uv sync')
+    expect(plan.tool).toBe('uv')
+  })
+
+  it('auto-detects uv pip install from requirements.txt', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'requirements.txt'), 'requests==2.31.0\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.source).toBe('detected')
+    expect(plan.command).toBe('uv pip install -r requirements.txt')
+    expect(plan.tool).toBe('uv')
+  })
+
+  it('prefers uv sync over requirements.txt when uv.lock is present', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+    fs.writeFileSync(path.join(tmpDir, 'requirements.txt'), 'requests==2.31.0\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv sync')
+    expect(plan.tool).toBe('uv')
+  })
+
+  it('warns and skips when both JS and Python project files are present', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'demo' }))
+    fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '{"name":"demo"}\n')
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.source).toBe('none')
+    expect(plan.command).toBeUndefined()
+    expect(plan.warning).toContain('JS and Python')
+  })
+
+  it('changes the config hash when uv.lock changes', async () => {
+    childProcessMocks.spawn
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+
+    const uvLock = path.join(tmpDir, 'uv.lock')
+    fs.writeFileSync(uvLock, 'version = 1\n')
+
+    const { __test__ } = await import('./sandbox')
+    const firstHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    fs.writeFileSync(uvLock, 'version = 1\n\n[[package]]\nname = "requests"\n')
+    const secondHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    expect(secondHash).not.toBe(firstHash)
+  })
+
+  it('changes the config hash when requirements.txt changes', async () => {
+    childProcessMocks.spawn
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+
+    const req = path.join(tmpDir, 'requirements.txt')
+    fs.writeFileSync(req, 'requests==2.31.0\n')
+
+    const { __test__ } = await import('./sandbox')
+    const firstHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    fs.writeFileSync(req, 'requests==2.32.0\n')
+    const secondHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    expect(secondHash).not.toBe(firstHash)
+  })
+
   it('derives the workspace container name from the directory name with a path hash suffix', async () => {
     const { __test__ } = await import('./sandbox')
 

@@ -303,6 +303,23 @@ describe('resolveToolRequirements', () => {
     })
   })
 
+  it('resolves uv tool with config dotfile and env vars', () => {
+    const result = resolveToolRequirements(['uv'])
+    expect(result.dotfiles).toHaveLength(1)
+    expect(result.dotfiles[0].path).toBe('~/.config/uv/uv.toml')
+    expect(result.dotfiles[0].readonly).toBe(true)
+    expect(result.environment).toContain('UV_INDEX_URL')
+    expect(result.environment).toContain('UV_EXTRA_INDEX_URL')
+    expect(result.environment).toContain('UV_DEFAULT_INDEX')
+    expect(result.environment).toContain('UV_PYTHON_PREFERENCE')
+    expect(result.environment).toContain('UV_PYTHON_DOWNLOADS')
+    expect(result.environment).toContain('UV_SYSTEM_PYTHON')
+    expect(result.sshAgent).toBe(false)
+    expect(result.gpgAgent).toBe(false)
+    expect(result.hostPrepares).toHaveLength(0)
+    expect(result.warnings).toEqual([])
+  })
+
   it('merges codex and copilot with other tools without duplicates', () => {
     const result = resolveToolRequirements(['git', 'gh', 'codex', 'copilot'])
     const paths = result.dotfiles.map((d) => d.path)
