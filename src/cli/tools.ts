@@ -58,6 +58,14 @@ export interface ToolRecipe {
   /** Whether this tool needs GPG agent forwarding (for commit signing) */
   gpgAgent?: boolean
   /**
+   * Environment variables to set unconditionally inside the container.
+   * Unlike `environment` (which forwards from the host), these are always
+   * injected with the specified value regardless of the host environment.
+   * The host can still override them via `environment` if the same var is
+   * listed there and present on the host.
+   */
+  containerEnvironment?: Record<string, string>
+  /**
    * A host-side prepare function that runs at sandbox start time.
    * Used for tools that need complex credential extraction (e.g. reading
    * tokens from the macOS keychain and generating modified config files).
@@ -646,7 +654,19 @@ export const RECIPES: Record<string, ToolRecipe> = {
       'UV_PYTHON_PREFERENCE',
       'UV_PYTHON_DOWNLOADS',
       'UV_SYSTEM_PYTHON',
+      // Allow the host to override the container venv path if needed
+      'UV_PROJECT_ENVIRONMENT',
     ],
+    // Use a Linux-specific venv directory so the container environment doesn't
+    // collide with the macOS host's .venv (different platform/arch binaries).
+    // The host value of UV_PROJECT_ENVIRONMENT (forwarded above) takes
+    // precedence if set, since environment vars are applied after containerEnvironment.
+    containerEnvironment: {
+      UV_PROJECT_ENVIRONMENT: '.venv-linux',
+      // The uv cache is not mounted (see above), so cache and workspace are on
+      // different filesystems. Use copy mode to avoid hardlink warnings.
+      UV_LINK_MODE: 'copy',
+    },
   },
   ssh: {
     name: 'SSH',
@@ -733,6 +753,8 @@ export interface ToolRequirements {
    * Declared here so the type flows through cleanly.
    */
   extraMounts: Array<{ path: string; readonly?: boolean }>
+  /** Environment variables to set unconditionally in the container (merged from all recipes) */
+  containerEnvironment: Record<string, string>
 }
 
 /**
@@ -748,6 +770,7 @@ export function resolveToolRequirements(tools: string[]): ToolRequirements {
   const envSet = new Set<string>()
   const envResolvers: Record<string, string> = {}
   const envMultiResolverSet = new Set<string>()
+  const containerEnvironment: Record<string, string> = {}
   let sshAgent = false
   let gpgAgent = false
   const warnings: string[] = []
@@ -813,6 +836,15 @@ export function resolveToolRequirements(tools: string[]): ToolRequirements {
     if (recipe.hostPrepare) {
       hostPrepares.push(recipe.hostPrepare)
     }
+
+    // Merge container environment defaults (first recipe wins for a given key)
+    if (recipe.containerEnvironment) {
+      for (const [key, value] of Object.entries(recipe.containerEnvironment)) {
+        if (!(key in containerEnvironment)) {
+          containerEnvironment[key] = value
+        }
+      }
+    }
   }
 
   return {
@@ -825,5 +857,6 @@ export function resolveToolRequirements(tools: string[]): ToolRequirements {
     warnings,
     hostPrepares,
     extraMounts: [],
+    containerEnvironment,
   }
 }

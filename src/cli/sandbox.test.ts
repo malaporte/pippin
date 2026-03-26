@@ -505,6 +505,58 @@ describe('sandbox image resolution', () => {
     expect(plan.tool).toBe('uv')
   })
 
+  it('appends uv run setup when [tool.uv.scripts] defines setup', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), '[tool.uv.scripts]\nsetup = "python scripts/setup.py"\n')
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv sync && uv run setup')
+    expect(plan.tool).toBe('uv')
+  })
+
+  it('appends uv run setup when [project.scripts] defines setup', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), '[project.scripts]\nsetup = "mypackage.setup:main"\n')
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv sync && uv run setup')
+    expect(plan.tool).toBe('uv')
+  })
+
+  it('appends uv run setup for requirements.txt path when setup script is present', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), '[tool.uv.scripts]\nsetup = "python scripts/setup.py"\n')
+    fs.writeFileSync(path.join(tmpDir, 'requirements.txt'), 'requests==2.31.0\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv pip install -r requirements.txt && uv run setup')
+    expect(plan.tool).toBe('uv')
+  })
+
+  it('does not prepend uv run setup when pyproject.toml has no setup script', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), '[project]\nname = "demo"\n')
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv sync')
+  })
+
+  it('does not prepend uv run setup when no pyproject.toml exists', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv sync')
+  })
+
   it('warns and skips when both JS and Python project files are present', async () => {
     fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'demo' }))
     fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '{"name":"demo"}\n')
@@ -795,6 +847,68 @@ describe('sandbox image resolution', () => {
     // -l should bind to loopback only
     const lIdx = args.indexOf('-l')
     expect(args[lIdx + 1]).toBe('127.0.0.1:9112')
+  })
+
+  it('injects containerEnvironment vars from tool recipes unconditionally', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      {},
+      { source: 'none', fingerprintParts: [] },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      null,
+      [],
+      undefined,
+      undefined,
+      { UV_PROJECT_ENVIRONMENT: '.venv-linux' },
+    )
+
+    const eIdx = args.indexOf('-e')
+    const envArgs: string[] = []
+    for (let i = 0; i < args.length - 1; i++) {
+      if (args[i] === '-e') envArgs.push(args[i + 1])
+    }
+    expect(envArgs).toContain('UV_PROJECT_ENVIRONMENT=.venv-linux')
+  })
+
+  it('host-forwarded env var overrides containerEnvironment default', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      {},
+      { source: 'none', fingerprintParts: [] },
+      [],
+      ['UV_PROJECT_ENVIRONMENT'],
+      { UV_PROJECT_ENVIRONMENT: '.venv-custom' },
+      false,
+      false,
+      new Map(),
+      null,
+      [],
+      undefined,
+      undefined,
+      { UV_PROJECT_ENVIRONMENT: '.venv-linux' },
+    )
+
+    // Collect all -e values in order
+    const envArgs: string[] = []
+    for (let i = 0; i < args.length - 1; i++) {
+      if (args[i] === '-e') envArgs.push(args[i + 1])
+    }
+    // Both should be present; the host value appears after the default
+    expect(envArgs).toContain('UV_PROJECT_ENVIRONMENT=.venv-linux')
+    expect(envArgs).toContain('UV_PROJECT_ENVIRONMENT=.venv-custom')
+    // Host value comes last (overrides)
+    const defaultIdx = envArgs.indexOf('UV_PROJECT_ENVIRONMENT=.venv-linux')
+    const hostIdx = envArgs.indexOf('UV_PROJECT_ENVIRONMENT=.venv-custom')
+    expect(hostIdx).toBeGreaterThan(defaultIdx)
   })
 })
 
