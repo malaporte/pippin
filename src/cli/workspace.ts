@@ -127,6 +127,14 @@ function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
       config.sandbox.init = sandbox.init
     }
 
+    if (typeof sandbox.auto_install === 'boolean') {
+      config.sandbox.auto_install = sandbox.auto_install
+    }
+
+    if (typeof sandbox.install_command === 'string' && sandbox.install_command.length > 0) {
+      config.sandbox.install_command = sandbox.install_command
+    }
+
     if (Array.isArray(sandbox.mounts)) {
       config.sandbox.mounts = sandbox.mounts
         .filter((m): m is MountEntry =>

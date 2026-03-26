@@ -11,6 +11,13 @@ const TEMPLATE = `# Pippin sandbox configuration
 # Useful for installing arch-specific dependencies in the sandbox.
 # init = "bun install"
 
+# Auto-detect and run the repo's package-manager install command on each
+# fresh sandbox start (default: true).
+# auto_install = false
+
+# Override the auto-detected package-manager install command.
+# install_command = "pnpm install --frozen-lockfile"
+
 # Cedar policy file for sandbox enforcement (restricts commands, file access, network):
 # policy = "sandbox.cedar"
 
@@ -40,7 +47,7 @@ const TEMPLATE = `# Pippin sandbox configuration
 
 # Tools to auto-configure in the sandbox. Pippin mounts credentials,
 # forwards env vars, and enables SSH agent as needed for each tool.
-# Supported: git, gh, aws, snowflake, npm, ssh, codex, copilot
+# Supported: git, gh, aws, snowflake, npm, bun, pnpm, ssh, codex, copilot
 # tools = ["git"]
 `
 

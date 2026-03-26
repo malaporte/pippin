@@ -118,8 +118,16 @@ A `.pippin.toml` file marks the workspace root and lets you customize the sandbo
 # Override the global idle timeout (seconds)
 idle_timeout = 900
 
-# Run a shell command inside the container after each fresh sandbox start
+# Run a shell command inside the container after each fresh sandbox start.
+# This takes priority over auto-detected dependency installs.
 # init = "bun install"
+
+# Auto-detect and run the repo's package-manager install command on each
+# fresh sandbox start (default: true)
+# auto_install = false
+
+# Override the auto-detected package-manager install command
+# install_command = "pnpm install --frozen-lockfile"
 
 # Shell to use for `pippin shell` (default: "bash")
 # shell = "zsh"
@@ -227,6 +235,7 @@ Tools from both configs are merged (union). The following tools have built-in re
 | `aws` | Mounts `~/.aws/config` (readonly). Resolves temporary SSO credentials via `aws configure export-credentials` at sandbox start. |
 | `snowflake` | Mounts `~/.snowflake/config.toml` (readonly). Extracts cached ID token from macOS keychain for `externalbrowser` auth. |
 | `npm` | Mounts `~/.npmrc` (readonly). Forwards `NPM_TOKEN` and `NPM_CONFIG_REGISTRY`. |
+| `bun` | Mounts `~/.npmrc` (readonly). Forwards `NPM_TOKEN`, `NPM_CONFIG_REGISTRY`, and `BUN_INSTALL`. |
 | `pnpm` | Mounts `~/.npmrc` (readonly). Detects the host's pnpm content-addressable store via `pnpm store path` and mounts it into the container. Sets `PNPM_STORE_DIR` so pnpm uses the mounted store — `pnpm install` reuses cached packages instead of re-downloading. Forwards `NPM_TOKEN`, `NPM_CONFIG_REGISTRY`, and `PNPM_HOME`. |
 | `ssh` | Mounts `~/.ssh/config` and `~/.ssh/known_hosts` (readonly). Enables SSH agent. Sanitizes macOS-specific options (`UseKeychain`, `AddKeysToAgent`) for Linux compatibility. |
 | `codex` | Mounts `~/.codex/config.toml` and `~/.codex/auth.json` (readonly). Forwards `OPENAI_API_KEY`. |
@@ -237,6 +246,18 @@ All credential files are mounted **read-only** — the sandbox never modifies yo
 Tools that need dynamic credential resolution (gh, aws) run a host-side command when the sandbox starts and inject the result as environment variables. This means SSO sessions and keychain tokens work transparently — no need to export tokens into your shell environment.
 
 Unknown tool names produce a warning but don't prevent the sandbox from starting. Run `pippin doctor` to check that all configured tools have their credentials available.
+
+### Automatic dependency installs
+
+By default, Pippin auto-detects common Node.js package-manager setups at the workspace root and runs the matching install command inside each fresh sandbox. This helps Linux-native binaries get installed in the sandbox even when the host checkout already contains macOS-native dependencies.
+
+- `package.json` with `packageManager = "bun@..."` or a `bun.lock` / `bun.lockb` file -> `bun install`
+- `package.json` with `packageManager = "pnpm@..."` or a `pnpm-lock.yaml` file -> `pnpm install`
+- `package.json` with `packageManager = "npm@..."` or a `package-lock.json` file -> `npm install`
+
+Detection prefers the `packageManager` field when present. If Pippin sees conflicting lockfiles and no supported `packageManager` field, it skips auto-install rather than guessing.
+
+Use `sandbox.auto_install = false` to disable this behavior, `sandbox.install_command` to override the inferred install command, or `sandbox.init` when you need a fully custom startup script.
 
 **Tools vs. host commands:** Tools run *inside* the container with auto-configured credentials. Host commands run *outside* the container on the host. Prefer tools when possible — they maintain sandbox isolation and Cedar policy enforcement.
 

@@ -183,6 +183,54 @@ init = 42
     expect(result!.config.sandbox?.init).toBeUndefined()
   })
 
+  it('parses auto_install from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+auto_install = false
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.auto_install).toBe(false)
+  })
+
+  it('ignores invalid auto_install values in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+auto_install = "no"
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.auto_install).toBeUndefined()
+  })
+
+  it('parses install_command from .pippin.toml', () => {
+    const toml = `
+[sandbox]
+install_command = "pnpm install --frozen-lockfile"
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.install_command).toBe('pnpm install --frozen-lockfile')
+  })
+
+  it('ignores empty install_command in .pippin.toml', () => {
+    const toml = `
+[sandbox]
+install_command = ""
+`
+    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
+
+    const result = findWorkspace(tmpDir)
+    expect(result).not.toBeNull()
+    expect(result!.config.sandbox?.install_command).toBeUndefined()
+  })
+
   it('filters invalid host_commands entries', () => {
     const toml = `
 [sandbox]

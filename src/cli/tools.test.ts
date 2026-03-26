@@ -1,6 +1,27 @@
-import { describe, it, expect } from 'vitest'
-import { resolveToolRequirements, RECIPES, KNOWN_TOOLS, _parseSimpleToml, _injectCredentialCacheSetting, _prepareSSH, _discoverIdentityFiles, _ensureAgentHasKeys } from './tools'
+import { beforeAll, describe, it, expect, vi } from 'vitest'
 import { expandHome } from './config'
+
+let resolveToolRequirements: typeof import('./tools').resolveToolRequirements
+let RECIPES: typeof import('./tools').RECIPES
+let KNOWN_TOOLS: typeof import('./tools').KNOWN_TOOLS
+let _parseSimpleToml: typeof import('./tools')._parseSimpleToml
+let _injectCredentialCacheSetting: typeof import('./tools')._injectCredentialCacheSetting
+let _prepareSSH: typeof import('./tools')._prepareSSH
+let _discoverIdentityFiles: typeof import('./tools')._discoverIdentityFiles
+let _ensureAgentHasKeys: typeof import('./tools')._ensureAgentHasKeys
+
+beforeAll(async () => {
+  // @ts-expect-error test-only query suffix avoids sandbox.test's module mock
+  const tools = await import(/* @vite-ignore */ './tools.ts?tools-test') as typeof import('./tools')
+  resolveToolRequirements = tools.resolveToolRequirements
+  RECIPES = tools.RECIPES
+  KNOWN_TOOLS = tools.KNOWN_TOOLS
+  _parseSimpleToml = tools._parseSimpleToml
+  _injectCredentialCacheSetting = tools._injectCredentialCacheSetting
+  _prepareSSH = tools._prepareSSH
+  _discoverIdentityFiles = tools._discoverIdentityFiles
+  _ensureAgentHasKeys = tools._ensureAgentHasKeys
+})
 
 describe('RECIPES', () => {
   it('has entries for all known tools', () => {
@@ -244,6 +265,19 @@ describe('resolveToolRequirements', () => {
     expect(result.warnings).toEqual([])
   })
 
+  it('resolves bun tool with npm-compatible registry settings', () => {
+    const result = resolveToolRequirements(['bun'])
+    expect(result.dotfiles).toHaveLength(1)
+    expect(result.dotfiles[0].path).toBe('~/.npmrc')
+    expect(result.dotfiles[0].readonly).toBe(true)
+    expect(result.environment).toContain('NPM_TOKEN')
+    expect(result.environment).toContain('NPM_CONFIG_REGISTRY')
+    expect(result.environment).toContain('BUN_INSTALL')
+    expect(result.sshAgent).toBe(false)
+    expect(result.gpgAgent).toBe(false)
+    expect(result.warnings).toEqual([])
+  })
+
   it('resolves copilot tool with dotfiles, env vars, and envResolver', () => {
     const result = resolveToolRequirements(['copilot'])
     expect(result.dotfiles).toHaveLength(1)
@@ -417,13 +451,12 @@ describe('discoverIdentityFiles', () => {
 
   it('always includes well-known default key paths', () => {
     const result = _discoverIdentityFiles()
-    const home = process.env.HOME || '/root'
     const expected = [
-      `${home}/.ssh/id_rsa`,
-      `${home}/.ssh/id_ecdsa`,
-      `${home}/.ssh/id_ecdsa_sk`,
-      `${home}/.ssh/id_ed25519`,
-      `${home}/.ssh/id_ed25519_sk`,
+      expandHome('~/.ssh/id_rsa'),
+      expandHome('~/.ssh/id_ecdsa'),
+      expandHome('~/.ssh/id_ecdsa_sk'),
+      expandHome('~/.ssh/id_ed25519'),
+      expandHome('~/.ssh/id_ed25519_sk'),
     ]
     for (const keyPath of expected) {
       expect(result).toContain(keyPath)

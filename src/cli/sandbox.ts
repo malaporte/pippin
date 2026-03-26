@@ -27,6 +27,7 @@ import { DEFAULT_SANDBOX_DOCKERFILE } from './default-dockerfile'
 import type { WorkspaceConfig, MountEntry, SandboxState, DotfileEntry } from '../shared/types'
 
 const HEALTH_MAX_ATTEMPTS = 60
+const INSTALL_HEALTH_MAX_ATTEMPTS = 300
 const HEALTH_INTERVAL_MS = 1000
 
 type DockerfileBuildSource =
@@ -38,6 +39,18 @@ type GpgSocketInfo = {
   containerSocket: string
   source: 'agent-extra-socket' | 'agent-socket'
   fingerprint: string
+}
+
+type SupportedPackageManager = 'bun' | 'npm' | 'pnpm'
+
+type InstallPlanSource = 'disabled' | 'init' | 'install_command' | 'detected' | 'none'
+
+type InstallPlan = {
+  source: InstallPlanSource
+  command?: string
+  tool?: SupportedPackageManager
+  fingerprintParts: string[]
+  warning?: string
 }
 
 /**
@@ -135,10 +148,20 @@ async function startSandbox(
   // Resolve SSH agent forwarding (workspace overrides global)
   const explicitSshAgent = resolveSshAgent(workspaceConfig, globalConfig)
 
+  const installPlan = resolveInstallPlan(workspaceRoot, workspaceConfig)
+
   // Resolve tool recipes and merge their requirements into the effective config.
   // Tools from both global and workspace configs are unioned.
-  const tools = [...new Set([...globalConfig.tools, ...(workspaceConfig.sandbox?.tools ?? [])])]
+  const tools = [...new Set([
+    ...globalConfig.tools,
+    ...(workspaceConfig.sandbox?.tools ?? []),
+    ...(installPlan.tool ? [installPlan.tool] : []),
+  ])]
   const toolReqs = resolveToolRequirements(tools)
+
+  if (installPlan.warning) {
+    process.stderr.write(`pippin: warning: ${installPlan.warning}\n`)
+  }
 
   // Print warnings for unknown tool names
   for (const unknown of toolReqs.warnings) {
@@ -250,13 +273,19 @@ async function startSandbox(
   const worktreeMainRepo = resolveWorktreeMainRepo(workspaceRoot)
 
   // Build the leash command
-  const args = buildLeashArgs(port, controlPort, workspaceConfig, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, worktreeMainRepo, toolExtraMounts, resolvedImage, resolvedPolicy)
+  const args = buildLeashArgs(port, controlPort, workspaceConfig, installPlan, effectiveDotfiles, effectiveEnvironment, shellEnv, effectiveSshAgent, effectiveGpgAgent, dotfileOverrides, worktreeMainRepo, toolExtraMounts, resolvedImage, resolvedPolicy)
+
+  const spinnerMessage = installPlan.command
+    ? formatInstallProgressMessage(installPlan)
+    : `starting sandbox for ${workspaceRoot}`
+  if (installPlan.command) {
+    process.stderr.write(`pippin: ${spinnerMessage}\n`)
+  }
+  const spinner = new Spinner(spinnerMessage)
+  spinner.start()
 
   // Resolve the leash binary — auto-installs if not found
   const leashBinary = await ensureLeash()
-
-  const spinner = new Spinner(`starting sandbox for ${workspaceRoot}`)
-  spinner.start()
 
   // Tell leash to use a unique container name that includes a hash of the
   // full workspace path.  Without this, leash derives the name from
@@ -296,7 +325,8 @@ async function startSandbox(
 
   // Health-check loop
   let healthy = false
-  for (let attempt = 0; attempt < HEALTH_MAX_ATTEMPTS; attempt++) {
+  const maxHealthAttempts = installPlan.command ? INSTALL_HEALTH_MAX_ATTEMPTS : HEALTH_MAX_ATTEMPTS
+  for (let attempt = 0; attempt < maxHealthAttempts; attempt++) {
     if (unexpectedExit) break
 
     spinner.update(`starting sandbox (${attempt + 1}s)`)
@@ -349,8 +379,8 @@ async function startSandbox(
       })
       const dockerLog = [result.stdout, result.stderr].filter(Boolean).join('').trim()
       if (dockerLog) {
-        if (dockerLog.includes('pippin: sandbox.init command failed')) {
-          process.stderr.write('pippin: sandbox.init command failed — check your workspace init script\n')
+        if (dockerLog.includes('pippin: sandbox dependency install failed')) {
+          process.stderr.write('pippin: sandbox dependency install failed — check your package-manager setup or sandbox config\n')
         }
         process.stderr.write(`\n--- container log (docker logs ${logContainerName}) ---\n`)
         process.stderr.write(dockerLog + '\n')
@@ -358,6 +388,18 @@ async function startSandbox(
       }
     } catch {
       // Container may already be removed
+    }
+
+    const bootstrapLogPath = path.join(shareDir, 'bootstrap.log')
+    try {
+      const bootstrapLog = fs.readFileSync(bootstrapLogPath, 'utf-8').trim()
+      if (bootstrapLog) {
+        process.stderr.write(`\n--- bootstrap log (${bootstrapLogPath}) ---\n`)
+        process.stderr.write(bootstrapLog + '\n')
+        process.stderr.write('--- end bootstrap log ---\n')
+      }
+    } catch {
+      // No persisted bootstrap log available
     }
 
     process.exit(1)
@@ -665,11 +707,12 @@ async function computeConfigHash(
 ): Promise<string> {
   const image = await resolveImage(workspaceRoot, workspaceConfig, globalConfig)
   const policy = resolvePolicy(workspaceRoot, workspaceConfig, globalConfig)
+  const installPlan = resolveInstallPlan(workspaceRoot, workspaceConfig)
 
   const parts: string[] = [
     `image:${image ?? ''}`,
     `policy:${policy ?? ''}`,
-    `init:${workspaceConfig.sandbox?.init ?? ''}`,
+    ...installPlan.fingerprintParts,
   ]
 
   // Include policy file content so edits to the .cedar file are detected
@@ -711,7 +754,11 @@ async function computeConfigHash(
   parts.push(`sshAgent:${sshAgent}`)
 
   // Tool declarations (sorted for determinism)
-  const tools = [...new Set([...globalConfig.tools, ...(workspaceConfig.sandbox?.tools ?? [])])]
+  const tools = [...new Set([
+    ...globalConfig.tools,
+    ...(workspaceConfig.sandbox?.tools ?? []),
+    ...(installPlan.tool ? [installPlan.tool] : []),
+  ])]
   parts.push(...tools.sort().map((t) => `tool:${t}`))
 
   // GPG agent forwarding (derived from tool recipes)
@@ -764,6 +811,7 @@ function buildLeashArgs(
   port: number,
   controlPort: number,
   workspaceConfig: WorkspaceConfig,
+  installPlan: InstallPlan,
   dotfiles: { path: string; readonly?: boolean }[],
   environment: string[],
   shellEnv: Record<string, string>,
@@ -771,10 +819,11 @@ function buildLeashArgs(
   gpgAgent: boolean,
   dotfileOverrides: Map<string, string>,
   worktreeMainRepo: string | null,
-  toolExtraMounts: Array<{ path: string; readonly?: boolean }>,
+  toolExtraMounts: Array<{ path: string; containerPath?: string; readonly?: boolean }>,
   image?: string,
   policy?: string,
 ): string[] {
+  const installCommand = installPlan.command
   const args: string[] = [
     '-p', `127.0.0.1:${port}:${port}`,
     '-l', `127.0.0.1:${controlPort}`,
@@ -851,10 +900,11 @@ function buildLeashArgs(
     if (!fs.existsSync(expanded)) continue
     if (mountedPaths.has(expanded)) continue
     mountedPaths.add(expanded)
-    // Map ~/foo → /root/foo inside the container
-    const containerPath = expanded.startsWith(hostHome)
-      ? containerHome + expanded.slice(hostHome.length)
-      : expanded
+    const containerPath = mount.containerPath
+      ? expandHome(mount.containerPath)
+      : expanded.startsWith(hostHome)
+        ? containerHome + expanded.slice(hostHome.length)
+        : expanded
     const mountSpec = mount.readonly
       ? `${expanded}:${containerPath}:ro`
       : `${expanded}:${containerPath}`
@@ -911,7 +961,6 @@ function buildLeashArgs(
   const COMBINED_CA = '/tmp/combined-ca.pem'
   const SF_CACHE_DIR = '$HOME/.cache/snowflake'
   const SF_CACHE_FILE = `${SF_CACHE_DIR}/credential_cache_v1.json`
-  const workspaceInit = workspaceConfig.sandbox?.init?.trim()
   const bootstrap = [
     // Create a combined CA bundle from the system store + leash MITM CA.
     // If leash's CA isn't present (e.g. running without leash), just copy
@@ -935,9 +984,10 @@ function buildLeashArgs(
     // socket or pubring files), it uses 755. Fix that up at startup so that
     // gpg-agent forwarding works without the "unsafe permissions" warning.
     `if [ -d /root/.gnupg ]; then chmod 700 /root/.gnupg; fi`,
-    ...(workspaceInit
+    ...(installCommand
       ? [
-          `if ! ( ${workspaceInit} ); then echo "pippin: sandbox.init command failed" >&2; exit 1; fi`,
+          'BOOTSTRAP_LOG=/leash/bootstrap.log',
+          `if ! ( ${installCommand} ) >"$BOOTSTRAP_LOG" 2>&1; then cat "$BOOTSTRAP_LOG" >&2; echo "pippin: sandbox dependency install failed" >&2; exit 1; fi`,
         ]
       : []),
     'exec /leash/pippin-server',
@@ -1102,6 +1152,175 @@ function isPortInUseError(stderr: string): boolean {
   return /port\s+\d+\s+is already in use/.test(stderr)
 }
 
+function formatInstallProgressMessage(plan: InstallPlan): string {
+  if (!plan.command) return 'starting sandbox'
+
+  if (plan.source === 'detected') {
+    return `running auto-detected ${plan.tool ?? 'dependency'} dependencies`
+  }
+  if (plan.source === 'install_command') {
+    return `running sandbox.install_command: ${plan.command}`
+  }
+  return `running sandbox.init: ${plan.command}`
+}
+
+export function resolveInstallPlan(workspaceRoot: string, workspaceConfig: WorkspaceConfig): InstallPlan {
+  const sandbox = workspaceConfig.sandbox
+  const initCommand = sandbox?.init?.trim()
+  if (initCommand) {
+    return {
+      source: 'init',
+      command: initCommand,
+      tool: inferToolFromCommand(initCommand),
+      fingerprintParts: [
+        'install:auto',
+        'install-source:init',
+        `install-command:${initCommand}`,
+      ],
+    }
+  }
+
+  const overrideCommand = sandbox?.install_command?.trim()
+  if (overrideCommand) {
+    return {
+      source: 'install_command',
+      command: overrideCommand,
+      tool: inferToolFromCommand(overrideCommand),
+      fingerprintParts: [
+        `install:auto:${sandbox?.auto_install !== false}`,
+        'install-source:install_command',
+        `install-command:${overrideCommand}`,
+      ],
+    }
+  }
+
+  const autoInstallEnabled = sandbox?.auto_install !== false
+  if (!autoInstallEnabled) {
+    return {
+      source: 'disabled',
+      fingerprintParts: [
+        'install:auto:false',
+        'install-source:none',
+      ],
+    }
+  }
+
+  const detection = detectPackageManagerInstall(workspaceRoot)
+  return {
+    source: detection?.command ? 'detected' : 'none',
+    command: detection?.command,
+    tool: detection?.tool,
+    warning: detection?.warning,
+    fingerprintParts: [
+      'install:auto:true',
+      `install-source:${detection?.command ? 'detected' : 'none'}`,
+      ...(detection?.command ? [`install-command:${detection.command}`] : []),
+      ...(detection?.fingerprintParts ?? [
+        'install-package-json:missing',
+        'install-package-manager:',
+      ]),
+    ],
+  }
+}
+
+function detectPackageManagerInstall(workspaceRoot: string): {
+  command?: string
+  tool?: SupportedPackageManager
+  warning?: string
+  fingerprintParts: string[]
+} | null {
+  const packageJsonPath = path.join(workspaceRoot, 'package.json')
+  if (!fs.existsSync(packageJsonPath)) return null
+
+  let packageManager = ''
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { packageManager?: unknown }
+    if (typeof parsed.packageManager === 'string') {
+      packageManager = parsed.packageManager.trim()
+    }
+  } catch {
+    return {
+      warning: `could not parse ${packageJsonPath} for auto-install detection`,
+      fingerprintParts: [
+        `install-package-json:${hashFileIfExists(packageJsonPath) ?? 'unreadable'}`,
+        'install-package-manager:invalid',
+      ],
+    }
+  }
+
+  const supportedLockfiles: Array<{ name: string; tool: SupportedPackageManager }> = [
+    { name: 'bun.lock', tool: 'bun' },
+    { name: 'bun.lockb', tool: 'bun' },
+    { name: 'pnpm-lock.yaml', tool: 'pnpm' },
+    { name: 'package-lock.json', tool: 'npm' },
+  ]
+  const existingLockfiles = supportedLockfiles.filter(({ name }) => fs.existsSync(path.join(workspaceRoot, name)))
+  const fingerprintParts = [
+    `install-package-json:${hashFileIfExists(packageJsonPath) ?? 'missing'}`,
+    `install-package-manager:${packageManager}`,
+    ...existingLockfiles.map(({ name }) => `install-lockfile:${name}:${hashFileIfExists(path.join(workspaceRoot, name)) ?? 'missing'}`),
+  ]
+
+  const packageManagerTool = parsePackageManagerTool(packageManager)
+  if (packageManager && packageManagerTool) {
+    return {
+      command: `${packageManagerTool} install`,
+      tool: packageManagerTool,
+      fingerprintParts,
+    }
+  }
+
+  const lockfileTools = [...new Set(existingLockfiles.map(({ tool }) => tool))]
+  if (lockfileTools.length === 1) {
+    const tool = lockfileTools[0]
+    return {
+      command: `${tool} install`,
+      tool,
+      fingerprintParts,
+    }
+  }
+
+  if (packageManager) {
+    return {
+      warning: `unsupported packageManager "${packageManager}" at ${packageJsonPath}; skipping sandbox auto-install`,
+      fingerprintParts,
+    }
+  }
+
+  if (lockfileTools.length > 1) {
+    return {
+      warning: `found conflicting lockfiles in ${workspaceRoot}; skipping sandbox auto-install`,
+      fingerprintParts,
+    }
+  }
+
+  return { fingerprintParts }
+}
+
+function parsePackageManagerTool(packageManager: string): SupportedPackageManager | undefined {
+  const normalized = packageManager.toLowerCase()
+  if (normalized.startsWith('bun@')) return 'bun'
+  if (normalized.startsWith('npm@')) return 'npm'
+  if (normalized.startsWith('pnpm@')) return 'pnpm'
+  return undefined
+}
+
+function inferToolFromCommand(command: string): SupportedPackageManager | undefined {
+  const firstToken = command.trim().split(/\s+/, 1)[0]?.toLowerCase()
+  if (firstToken === 'bun' || firstToken === 'npm' || firstToken === 'pnpm') {
+    return firstToken
+  }
+  return undefined
+}
+
+function hashFileIfExists(filePath: string): string | undefined {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
+  } catch {
+    return undefined
+  }
+}
+
 /** Resolve the user's login shell environment */
 function getShellEnv(): Record<string, string> {
   const shell = process.env.SHELL || '/bin/sh'
@@ -1133,6 +1352,8 @@ export const __test__ = {
   buildDockerImage,
   buildLeashArgs,
   computeConfigHash,
+  resolveInstallPlan,
+  detectPackageManagerInstall,
   resolveGpgSocketInfo,
   startSandbox,
   getWorkspaceContainerName,

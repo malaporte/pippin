@@ -4,8 +4,8 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import kleur from 'kleur'
 import { readGlobalConfig, expandHome } from '../config'
-import { findWorkspace } from '../workspace'
-import { resolveGpgSocketInfo, resolveServerBinary } from '../sandbox'
+import { findWorkspace, resolveWorkspace } from '../workspace'
+import { resolveGpgSocketInfo, resolveInstallPlan, resolveServerBinary } from '../sandbox'
 import { resolvePolicy } from '../policy'
 import { RECIPES, KNOWN_TOOLS, resolveToolRequirements } from '../tools'
 import { findLeash, getLeashVersion } from '../leash'
@@ -362,6 +362,38 @@ function checkTools(): CheckResult[] {
   return results
 }
 
+function checkAutoInstall(): CheckResult[] {
+  const cwd = process.cwd()
+  const workspace = resolveWorkspace(cwd)
+  const plan = resolveInstallPlan(workspace.root, workspace.config)
+
+  return [describeAutoInstallPlan(plan)]
+}
+
+function describeAutoInstallPlan(plan: ReturnType<typeof resolveInstallPlan>): CheckResult {
+  if (plan.source === 'disabled') {
+    return pass('Auto-install', 'disabled by workspace config')
+  }
+
+  if (plan.source === 'init') {
+    return pass('Auto-install', `using sandbox.init: ${plan.command}`)
+  }
+
+  if (plan.source === 'install_command') {
+    return pass('Auto-install', `using sandbox.install_command: ${plan.command}`)
+  }
+
+  if (plan.source === 'detected') {
+    return pass('Auto-install', `detected ${plan.tool}: ${plan.command}`)
+  }
+
+  if (plan.warning) {
+    return fail('Auto-install', plan.warning)
+  }
+
+  return pass('Auto-install', 'no supported package-manager install detected')
+}
+
 // --- Main command ---
 
 export function doctorCommand(): void {
@@ -379,6 +411,7 @@ export function doctorCommand(): void {
   results.push(...checkGlobalConfig())
   results.push(...checkWorkspace())
   results.push(checkSandboxImageSelection())
+  results.push(...checkAutoInstall())
   results.push(...checkGpgAgentForwarding())
 
   // Tool recipe validation
@@ -402,5 +435,7 @@ export function doctorCommand(): void {
 
 export const __test__ = {
   checkSandboxImageSelection,
+  checkAutoInstall,
   checkGpgAgentForwarding,
+  describeAutoInstallPlan,
 }
