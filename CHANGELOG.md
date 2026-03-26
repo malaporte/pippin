@@ -1,3 +1,10 @@
+## [0.8.1](https://github.com/malaporte/pippin/compare/v0.8.0...v0.8.1) (2026-03-26)
+
+
+### Bug Fixes
+
+* **sandbox:** harden gpg agent forwarding ([#17](https://github.com/malaporte/pippin/issues/17)) ([6f1a8e8](https://github.com/malaporte/pippin/commit/6f1a8e8f8f7a95fe03652bca620779bc90242286))
+
 # [0.8.0](https://github.com/malaporte/pippin/compare/v0.7.3...v0.8.0) (2026-03-25)
 
 
