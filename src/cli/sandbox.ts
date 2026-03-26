@@ -41,7 +41,7 @@ type GpgSocketInfo = {
   fingerprint: string
 }
 
-type SupportedPackageManager = 'bun' | 'npm' | 'pnpm'
+type SupportedPackageManager = 'bun' | 'npm' | 'pnpm' | 'uv'
 
 type InstallPlanSource = 'disabled' | 'init' | 'install_command' | 'detected' | 'none'
 
@@ -1229,6 +1229,31 @@ function detectPackageManagerInstall(workspaceRoot: string): {
   warning?: string
   fingerprintParts: string[]
 } | null {
+  const jsResult = detectJsPackageManagerInstall(workspaceRoot)
+  const pyResult = detectPythonPackageManagerInstall(workspaceRoot)
+
+  // No signals at all
+  if (!jsResult && !pyResult) return null
+
+  // Conflict: both JS and Python signals present — warn and skip
+  if (jsResult?.command && pyResult?.command) {
+    const allParts = [...(jsResult.fingerprintParts ?? []), ...(pyResult.fingerprintParts ?? [])]
+    return {
+      warning: `found both JS and Python project files in ${workspaceRoot}; skipping sandbox auto-install (set sandbox.install_command to override)`,
+      fingerprintParts: allParts,
+    }
+  }
+
+  // Only one side has a result — return whichever is non-null, preferring JS
+  return jsResult ?? pyResult
+}
+
+function detectJsPackageManagerInstall(workspaceRoot: string): {
+  command?: string
+  tool?: SupportedPackageManager
+  warning?: string
+  fingerprintParts: string[]
+} | null {
   const packageJsonPath = path.join(workspaceRoot, 'package.json')
   if (!fs.existsSync(packageJsonPath)) return null
 
@@ -1297,6 +1322,57 @@ function detectPackageManagerInstall(workspaceRoot: string): {
   return { fingerprintParts }
 }
 
+/**
+ * Detect Python project files and return an install plan for uv.
+ *
+ * Detection priority:
+ *   1. uv.lock present → `uv sync` (installs into project-local .venv)
+ *   2. requirements.txt present (no uv.lock) → `uv pip install -r requirements.txt`
+ *
+ * pyproject.toml alone (without uv.lock) is intentionally not detected —
+ * it could belong to any build system (poetry, hatch, flit, setuptools) and
+ * we can't safely assume `uv sync` is the right command.
+ */
+function detectPythonPackageManagerInstall(workspaceRoot: string): {
+  command?: string
+  tool?: SupportedPackageManager
+  warning?: string
+  fingerprintParts: string[]
+} | null {
+  const uvLockPath = path.join(workspaceRoot, 'uv.lock')
+  const pyprojectPath = path.join(workspaceRoot, 'pyproject.toml')
+  const requirementsPath = path.join(workspaceRoot, 'requirements.txt')
+
+  const hasUvLock = fs.existsSync(uvLockPath)
+  const hasPyproject = fs.existsSync(pyprojectPath)
+  const hasRequirements = fs.existsSync(requirementsPath)
+
+  if (!hasUvLock && !hasRequirements) return null
+
+  if (hasUvLock) {
+    const fingerprintParts = [
+      `install-uv-lock:${hashFileIfExists(uvLockPath) ?? 'missing'}`,
+      `install-pyproject:${hashFileIfExists(pyprojectPath) ?? 'missing'}`,
+    ]
+    return {
+      command: 'uv sync',
+      tool: 'uv',
+      fingerprintParts,
+    }
+  }
+
+  // requirements.txt only (no uv.lock)
+  const fingerprintParts = [
+    `install-requirements:${hashFileIfExists(requirementsPath) ?? 'missing'}`,
+    ...(hasPyproject ? [`install-pyproject:${hashFileIfExists(pyprojectPath) ?? 'missing'}`] : []),
+  ]
+  return {
+    command: 'uv pip install -r requirements.txt',
+    tool: 'uv',
+    fingerprintParts,
+  }
+}
+
 function parsePackageManagerTool(packageManager: string): SupportedPackageManager | undefined {
   const normalized = packageManager.toLowerCase()
   if (normalized.startsWith('bun@')) return 'bun'
@@ -1307,7 +1383,7 @@ function parsePackageManagerTool(packageManager: string): SupportedPackageManage
 
 function inferToolFromCommand(command: string): SupportedPackageManager | undefined {
   const firstToken = command.trim().split(/\s+/, 1)[0]?.toLowerCase()
-  if (firstToken === 'bun' || firstToken === 'npm' || firstToken === 'pnpm') {
+  if (firstToken === 'bun' || firstToken === 'npm' || firstToken === 'pnpm' || firstToken === 'uv') {
     return firstToken
   }
   return undefined
@@ -1354,6 +1430,8 @@ export const __test__ = {
   computeConfigHash,
   resolveInstallPlan,
   detectPackageManagerInstall,
+  detectJsPackageManagerInstall,
+  detectPythonPackageManagerInstall,
   resolveGpgSocketInfo,
   startSandbox,
   getWorkspaceContainerName,

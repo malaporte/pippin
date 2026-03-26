@@ -630,6 +630,24 @@ export const RECIPES: Record<string, ToolRecipe> = {
     environment: ['NPM_TOKEN', 'NPM_CONFIG_REGISTRY', 'PNPM_HOME'],
     hostPrepare: preparePnpm,
   },
+  uv: {
+    name: 'uv',
+    dotfiles: [
+      { path: '~/.config/uv/uv.toml', readonly: true },
+    ],
+    // Forward common uv env vars for registry auth and Python selection.
+    // The uv cache (~/.cache/uv) is NOT mounted: it contains arch-specific
+    // Python interpreter binaries and pre-built wheels that are incompatible
+    // between the macOS host (arm64/x64) and the Linux container.
+    environment: [
+      'UV_INDEX_URL',
+      'UV_EXTRA_INDEX_URL',
+      'UV_DEFAULT_INDEX',
+      'UV_PYTHON_PREFERENCE',
+      'UV_PYTHON_DOWNLOADS',
+      'UV_SYSTEM_PYTHON',
+    ],
+  },
   ssh: {
     name: 'SSH',
     dotfiles: [
