@@ -33,6 +33,13 @@ type DockerfileBuildSource =
   | { kind: 'path'; dockerfilePath: string }
   | { kind: 'inline'; dockerfileText: string; label?: string }
 
+type GpgSocketInfo = {
+  hostSocket: string
+  containerSocket: string
+  source: 'agent-extra-socket' | 'agent-socket'
+  fingerprint: string
+}
+
 /**
  * Ensure a sandbox is running for the given workspace. Starts one if needed.
  * Returns the port number for connecting to the pippin-server.
@@ -710,6 +717,10 @@ async function computeConfigHash(
   // GPG agent forwarding (derived from tool recipes)
   const toolReqs = resolveToolRequirements(tools)
   parts.push(`gpgAgent:${toolReqs.gpgAgent}`)
+  if (toolReqs.gpgAgent) {
+    const gpgSocket = resolveGpgSocketInfo('/root')
+    parts.push(`gpgSocket:${gpgSocket?.fingerprint ?? 'unavailable'}`)
+  }
 
   // Git worktree main repo mount (auto-detected)
   const worktreeMainRepo = resolveWorktreeMainRepo(workspaceRoot)
@@ -883,18 +894,12 @@ function buildLeashArgs(
   // GPG commit signing works inside the container without needing a
   // pinentry program or direct access to private key files.
   if (gpgAgent) {
-    try {
-      const result = spawnSync('gpgconf', ['--list-dirs', 'agent-socket'], {
-        encoding: 'utf-8',
-        timeout: 5_000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      })
-      const hostSocket = result.stdout?.trim()
-      if (result.status === 0 && hostSocket && fs.existsSync(hostSocket)) {
-        const containerSocket = containerHome + '/.gnupg/S.gpg-agent'
-        args.push('-v', `${hostSocket}:${containerSocket}`)
-      }
-    } catch { /* gpgconf not available — skip silently */ }
+    const gpgSocket = resolveGpgSocketInfo(containerHome)
+    if (gpgSocket) {
+      args.push('-v', `${gpgSocket.hostSocket}:${gpgSocket.containerSocket}`)
+    } else {
+      process.stderr.write('pippin: warning: could not locate a usable gpg-agent socket; git commit signing may fail in the sandbox\n')
+    }
   }
 
   // The command to run inside the container.
@@ -1128,11 +1133,38 @@ export const __test__ = {
   buildDockerImage,
   buildLeashArgs,
   computeConfigHash,
+  resolveGpgSocketInfo,
   startSandbox,
   getWorkspaceContainerName,
   removeWorkspaceContainer,
   isContainerNameConflictError,
   isPortInUseError,
+}
+
+export function resolveGpgSocketInfo(containerHome: string): GpgSocketInfo | null {
+  for (const dir of ['agent-extra-socket', 'agent-socket'] as const) {
+    try {
+      const result = spawnSync('gpgconf', ['--list-dirs', dir], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      const hostSocket = result.stdout?.trim()
+      if (result.status !== 0 || !hostSocket || !fs.existsSync(hostSocket)) continue
+
+      const stat = fs.lstatSync(hostSocket)
+      return {
+        hostSocket,
+        containerSocket: `${containerHome}/.gnupg/S.gpg-agent`,
+        source: dir,
+        fingerprint: `${dir}:${hostSocket}:${stat.ino}:${Math.trunc(stat.mtimeMs)}`,
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return null
 }
 
 function sleep(ms: number): Promise<void> {

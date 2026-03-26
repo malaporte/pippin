@@ -222,7 +222,7 @@ Tools from both configs are merged (union). The following tools have built-in re
 
 | Tool | What it does |
 |------|-------------|
-| `git` | Mounts `~/.gitconfig`, `~/.gitignore_global`, `~/.gnupg` (readonly). Enables SSH agent. |
+| `git` | Mounts `~/.gitconfig`, `~/.gitignore_global`, the GPG public keyring/trustdb (readonly), and forwards the host GPG agent socket. Enables SSH agent. |
 | `gh` | Mounts `~/.config/gh/config.yml` (readonly). Resolves `GH_TOKEN` dynamically via `gh auth token` — works with keychain-based auth. |
 | `aws` | Mounts `~/.aws/config` (readonly). Resolves temporary SSO credentials via `aws configure export-credentials` at sandbox start. |
 | `snowflake` | Mounts `~/.snowflake/config.toml` (readonly). Extracts cached ID token from macOS keychain for `externalbrowser` auth. |

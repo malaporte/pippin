@@ -213,6 +213,114 @@ describe('sandbox image resolution', () => {
     expect(args.at(-1)).toContain('exec /leash/pippin-server')
   })
 
+  it('prefers the gpg extra socket when forwarding agent access', async () => {
+    const extraSocket = path.join(tmpDir, 'S.gpg-agent.extra')
+    const agentSocket = path.join(tmpDir, 'S.gpg-agent')
+    fs.writeFileSync(extraSocket, '')
+    fs.writeFileSync(agentSocket, '')
+
+    childProcessMocks.spawnSync.mockImplementation((command: string, args: string[]) => {
+      if (command === 'gpgconf' && args[0] === '--list-dirs' && args[1] === 'agent-extra-socket') {
+        return { status: 0, stdout: `${extraSocket}\n`, stderr: '' }
+      }
+      if (command === 'gpgconf' && args[0] === '--list-dirs' && args[1] === 'agent-socket') {
+        return { status: 0, stdout: `${agentSocket}\n`, stderr: '' }
+      }
+      return { status: 0, stdout: '', stderr: '' }
+    })
+
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      {},
+      [],
+      [],
+      {},
+      false,
+      true,
+      new Map(),
+      null,
+      [],
+      undefined,
+      undefined,
+    )
+
+    expect(args).toContain('-v')
+    expect(args).toContain(`${extraSocket}:/root/.gnupg/S.gpg-agent`)
+    expect(args).not.toContain(`${agentSocket}:/root/.gnupg/S.gpg-agent`)
+  })
+
+  it('falls back to the primary gpg agent socket when extra socket is unavailable', async () => {
+    const agentSocket = path.join(tmpDir, 'S.gpg-agent')
+    fs.writeFileSync(agentSocket, '')
+
+    childProcessMocks.spawnSync.mockImplementation((command: string, args: string[]) => {
+      if (command === 'gpgconf' && args[0] === '--list-dirs' && args[1] === 'agent-extra-socket') {
+        return { status: 0, stdout: `${path.join(tmpDir, 'missing-extra')}\n`, stderr: '' }
+      }
+      if (command === 'gpgconf' && args[0] === '--list-dirs' && args[1] === 'agent-socket') {
+        return { status: 0, stdout: `${agentSocket}\n`, stderr: '' }
+      }
+      return { status: 0, stdout: '', stderr: '' }
+    })
+
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      {},
+      [],
+      [],
+      {},
+      false,
+      true,
+      new Map(),
+      null,
+      [],
+      undefined,
+      undefined,
+    )
+
+    expect(args).toContain(`${agentSocket}:/root/.gnupg/S.gpg-agent`)
+  })
+
+  it('changes the config hash when the forwarded gpg socket fingerprint changes', async () => {
+    const firstSocket = path.join(tmpDir, 'S.gpg-agent.extra.1')
+    const secondSocket = path.join(tmpDir, 'S.gpg-agent.extra.2')
+    fs.writeFileSync(firstSocket, '')
+    fs.writeFileSync(secondSocket, '')
+
+    toolMocks.resolveToolRequirements.mockReturnValue({
+      dotfiles: [],
+      environment: [],
+      sshAgent: false,
+      gpgAgent: true,
+      hostPrepares: [],
+      envResolvers: {},
+      envMultiResolvers: [],
+      warnings: [],
+    })
+
+    childProcessMocks.spawn.mockImplementation(() => createSimpleProcess({ exitCode: 0 }))
+
+    let activeSocket = firstSocket
+    childProcessMocks.spawnSync.mockImplementation((command: string, args: string[]) => {
+      if (command === 'gpgconf' && args[0] === '--list-dirs' && args[1] === 'agent-extra-socket') {
+        return { status: 0, stdout: `${activeSocket}\n`, stderr: '' }
+      }
+      return { status: 0, stdout: '', stderr: '' }
+    })
+
+    const { __test__ } = await import('./sandbox')
+    const firstHash = await __test__.computeConfigHash(tmpDir, { sandbox: { tools: ['git'] } }, defaultGlobalConfig())
+
+    activeSocket = secondSocket
+    const secondHash = await __test__.computeConfigHash(tmpDir, { sandbox: { tools: ['git'] } }, defaultGlobalConfig())
+
+    expect(secondHash).not.toBe(firstHash)
+  })
+
   it('omits workspace init from the bootstrap command when not configured', async () => {
     const { __test__ } = await import('./sandbox')
     const args = __test__.buildLeashArgs(
