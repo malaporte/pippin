@@ -1,3 +1,10 @@
+# [0.10.0](https://github.com/malaporte/pippin/compare/v0.9.0...v0.10.0) (2026-03-26)
+
+
+### Features
+
+* **sandbox:** auto-detect and run uv install in fresh sandboxes ([#19](https://github.com/malaporte/pippin/issues/19)) ([ab749fb](https://github.com/malaporte/pippin/commit/ab749fb235c46e00ec15187a3a8ea8abc60adec1))
+
 # [0.9.0](https://github.com/malaporte/pippin/compare/v0.8.1...v0.9.0) (2026-03-26)
 
 
