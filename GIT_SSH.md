@@ -143,13 +143,19 @@ Private keys (`private-keys-v1.d/`) are **never** mounted.
 Pippin locates the host's `gpg-agent` socket by running:
 
 ```
-gpgconf --list-dirs agent-socket
+gpgconf --list-dirs agent-extra-socket
 ```
 
-This returns a path like `/Users/martin/.gnupg/S.gpg-agent` (or a
+This returns a path like `/Users/martin/.gnupg/S.gpg-agent.extra` (or a
 path under `/private/var/` on some macOS configurations). Pippin
-bind-mounts this socket to `/root/.gnupg/S.gpg-agent` inside the
-container.
+prefers this remote-friendly socket and falls back to `agent-socket`
+only if the extra socket is unavailable. It bind-mounts the chosen
+socket to `/root/.gnupg/S.gpg-agent` inside the container.
+
+The sandbox config fingerprint also includes metadata from the
+forwarded socket. If the host agent restarts and recreates the socket,
+Pippin detects the change and starts a fresh sandbox instead of reusing
+one with a stale GPG mount.
 
 ### 3. Fixing `/root/.gnupg` Permissions
 
@@ -227,7 +233,7 @@ Agent forwarding is a deliberate security choice:
 
 | Property | Value |
 |---|---|
-| Agent socket (host) | Output of `gpgconf --list-dirs agent-socket` |
+| Agent socket (host) | Output of `gpgconf --list-dirs agent-extra-socket` (fallback: `agent-socket`) |
 | Agent socket (container) | `/root/.gnupg/S.gpg-agent` |
 | Mounted files | `~/.gnupg/pubring.gpg` (readonly), `~/.gnupg/pubring.kbx` (readonly), `~/.gnupg/trustdb.gpg` (readonly) |
 | Private keys mounted | **No** — never mounted |

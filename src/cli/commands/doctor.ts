@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process'
 import kleur from 'kleur'
 import { readGlobalConfig, expandHome } from '../config'
 import { findWorkspace } from '../workspace'
-import { resolveServerBinary } from '../sandbox'
+import { resolveGpgSocketInfo, resolveServerBinary } from '../sandbox'
 import { resolvePolicy } from '../policy'
 import { RECIPES, KNOWN_TOOLS, resolveToolRequirements } from '../tools'
 import { findLeash, getLeashVersion } from '../leash'
@@ -249,6 +249,39 @@ function checkSandboxImageSelection(): CheckResult {
   return pass('Sandbox image', 'using bundled default sandbox image')
 }
 
+function checkGpgAgentForwarding(): CheckResult[] {
+  const results: CheckResult[] = []
+  const globalConfig = readGlobalConfig()
+  const workspace = findWorkspace(process.cwd())
+  const workspaceTools = workspace?.config.sandbox?.tools ?? []
+  const tools = [...new Set([...globalConfig.tools, ...workspaceTools])]
+  const toolReqs = resolveToolRequirements(tools)
+
+  if (!toolReqs.gpgAgent) return results
+
+  const socketInfo = resolveGpgSocketInfo('/root')
+  if (!socketInfo) {
+    results.push(fail('GPG agent socket', 'enabled but no usable host socket found (checked agent-extra-socket, then agent-socket)'))
+    return results
+  }
+
+  results.push(pass('GPG agent socket', `${socketInfo.source} ${socketInfo.hostSocket} -> ${socketInfo.containerSocket}`))
+
+  const agentCheck = spawnSync('gpg-connect-agent', ['GETINFO version', '/bye'], {
+    encoding: 'utf-8',
+    timeout: 5_000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  if (agentCheck.status === 0) {
+    results.push(pass('GPG agent reachability', 'host gpg-agent responds to gpg-connect-agent'))
+  } else {
+    const detail = (agentCheck.stderr || agentCheck.stdout || '').trim() || 'host gpg-agent did not respond'
+    results.push(fail('GPG agent reachability', detail))
+  }
+
+  return results
+}
+
 function checkTools(): CheckResult[] {
   const results: CheckResult[] = []
   const globalConfig = readGlobalConfig()
@@ -346,6 +379,7 @@ export function doctorCommand(): void {
   results.push(...checkGlobalConfig())
   results.push(...checkWorkspace())
   results.push(checkSandboxImageSelection())
+  results.push(...checkGpgAgentForwarding())
 
   // Tool recipe validation
   results.push(...checkTools())
@@ -368,4 +402,5 @@ export function doctorCommand(): void {
 
 export const __test__ = {
   checkSandboxImageSelection,
+  checkGpgAgentForwarding,
 }
