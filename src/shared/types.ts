@@ -13,6 +13,12 @@ export const EXEC_PATH = '/exec'
 /** Default idle timeout in seconds before the server self-terminates */
 export const DEFAULT_IDLE_TIMEOUT = 900
 
+/** Default init timeout in seconds when no install command is present */
+export const DEFAULT_INIT_TIMEOUT = 60
+
+/** Default init timeout in seconds when an init/install command is present */
+export const DEFAULT_INSTALL_INIT_TIMEOUT = 300
+
 // --- Client -> Server Messages ---
 
 interface StdinMessage {
@@ -91,6 +97,8 @@ export interface MountEntry {
 export interface WorkspaceConfig {
   sandbox?: {
     idle_timeout?: number
+    /** Maximum seconds to wait for the sandbox to become healthy on startup */
+    init_timeout?: number
     /** Shell command to run inside the container each time a fresh sandbox starts */
     init?: string
     /** Whether to auto-detect and run a package-manager install inside fresh sandboxes */
@@ -124,6 +132,8 @@ export interface DotfileEntry {
 
 export interface GlobalConfig {
   idleTimeout?: number
+  /** Maximum seconds to wait for the sandbox to become healthy on startup */
+  initTimeout?: number
   portRangeStart?: number
   dotfiles?: DotfileEntry[]
   environment?: string[]
