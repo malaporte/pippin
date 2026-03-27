@@ -1,3 +1,10 @@
+# [0.12.0](https://github.com/malaporte/pippin/compare/v0.11.1...v0.12.0) (2026-03-27)
+
+
+### Features
+
+* add sentry-cli tool recipe and install in default sandbox image ([#22](https://github.com/malaporte/pippin/issues/22)) ([29e04af](https://github.com/malaporte/pippin/commit/29e04af088d3931738c159c7d9d88226b31437f2))
+
 ## [0.11.1](https://github.com/malaporte/pippin/compare/v0.11.0...v0.11.1) (2026-03-27)
 
 
