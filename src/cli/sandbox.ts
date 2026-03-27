@@ -379,9 +379,6 @@ async function startSandbox(
       })
       const dockerLog = [result.stdout, result.stderr].filter(Boolean).join('').trim()
       if (dockerLog) {
-        if (dockerLog.includes('pippin: sandbox dependency install failed')) {
-          process.stderr.write('pippin: sandbox dependency install failed — check your package-manager setup or sandbox config\n')
-        }
         process.stderr.write(`\n--- container log (docker logs ${logContainerName}) ---\n`)
         process.stderr.write(dockerLog + '\n')
         process.stderr.write('--- end container log ---\n')
@@ -403,6 +400,13 @@ async function startSandbox(
     }
 
     process.exit(1)
+  }
+
+  // If the container emitted anything to stderr during a successful startup
+  // (e.g. a warning from a failed init command), surface it to the user now.
+  const startupStderr = Buffer.concat(stderrChunks).toString()
+  if (startupStderr.trim()) {
+    process.stderr.write(startupStderr)
   }
 
   // Detach from the child process so the CLI can exit while leash keeps
@@ -995,7 +999,7 @@ function buildLeashArgs(
     ...(installCommand
       ? [
           'BOOTSTRAP_LOG=/leash/bootstrap.log',
-          `if ! ( ${installCommand} ) >"$BOOTSTRAP_LOG" 2>&1; then cat "$BOOTSTRAP_LOG" >&2; echo "pippin: sandbox dependency install failed" >&2; exit 1; fi`,
+          `if ! ( ${installCommand} ) >"$BOOTSTRAP_LOG" 2>&1; then echo "pippin: warning: sandbox init command failed (continuing anyway)" >&2; cat "$BOOTSTRAP_LOG" >&2; fi`,
         ]
       : []),
     'exec /leash/pippin-server',
