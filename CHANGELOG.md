@@ -1,3 +1,10 @@
+## [0.11.1](https://github.com/malaporte/pippin/compare/v0.11.0...v0.11.1) (2026-03-27)
+
+
+### Bug Fixes
+
+* warn instead of failing when sandbox init command fails ([#21](https://github.com/malaporte/pippin/issues/21)) ([8a4ddfc](https://github.com/malaporte/pippin/commit/8a4ddfc5702039861f6ded9747af2d2e549ef5c0))
+
 # [0.11.0](https://github.com/malaporte/pippin/compare/v0.10.0...v0.11.0) (2026-03-26)
 
 
