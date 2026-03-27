@@ -1,3 +1,10 @@
+# [0.13.0](https://github.com/malaporte/pippin/compare/v0.12.0...v0.13.0) (2026-03-27)
+
+
+### Features
+
+* make sandbox init timeout configurable globally and per-workspace ([#23](https://github.com/malaporte/pippin/issues/23)) ([6a7bf9f](https://github.com/malaporte/pippin/commit/6a7bf9f26558da4699af32df624a4770208bb85e))
+
 # [0.12.0](https://github.com/malaporte/pippin/compare/v0.11.1...v0.12.0) (2026-03-27)
 
 
