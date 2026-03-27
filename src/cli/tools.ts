@@ -704,6 +704,13 @@ export const RECIPES: Record<string, ToolRecipe> = {
     ],
     environment: ['JIRA_API_TOKEN'],
   },
+  sentry: {
+    name: 'Sentry CLI',
+    dotfiles: [
+      { path: '~/.sentryclirc', readonly: true },
+    ],
+    environment: ['SENTRY_AUTH_TOKEN', 'SENTRY_ORG', 'SENTRY_PROJECT', 'SENTRY_URL'],
+  },
   copilot: {
     name: 'GitHub Copilot CLI',
     // Mount the Copilot CLI config (trusted folders, settings). On headless systems
