@@ -1,7 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
-import { DEFAULT_IDLE_TIMEOUT, DEFAULT_PORT } from '../shared/types'
+import { DEFAULT_IDLE_TIMEOUT, DEFAULT_INIT_TIMEOUT, DEFAULT_PORT } from '../shared/types'
 import type { GlobalConfig, DotfileEntry } from '../shared/types'
 import { KNOWN_TOOLS } from './tools'
 
@@ -9,7 +9,7 @@ const CONFIG_DIR = path.join(os.homedir(), '.config', 'pippin')
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
 
 /** Resolved global config: fields with defaults are always present, optional overrides may be undefined */
-export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'idleTimeout' | 'portRangeStart' | 'dotfiles' | 'environment' | 'shell' | 'hostCommands' | 'sshAgent' | 'tools'>> & Pick<GlobalConfig, 'image' | 'dockerfile' | 'policy'>
+export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'idleTimeout' | 'portRangeStart' | 'dotfiles' | 'environment' | 'shell' | 'hostCommands' | 'sshAgent' | 'tools'>> & Pick<GlobalConfig, 'initTimeout' | 'image' | 'dockerfile' | 'policy'>
 
 /** Read the global pippin config, returning defaults for missing values */
 export function readGlobalConfig(): ResolvedGlobalConfig {
@@ -50,6 +50,9 @@ export function readGlobalConfig(): ResolvedGlobalConfig {
     idleTimeout: typeof parsed.idleTimeout === 'number' && parsed.idleTimeout > 0
       ? parsed.idleTimeout
       : defaults.idleTimeout,
+    initTimeout: typeof parsed.initTimeout === 'number' && parsed.initTimeout > 0
+      ? parsed.initTimeout
+      : undefined,
     portRangeStart: typeof parsed.portRangeStart === 'number' && parsed.portRangeStart > 0
       ? parsed.portRangeStart
       : defaults.portRangeStart,

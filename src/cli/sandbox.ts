@@ -25,9 +25,8 @@ import { resolvePolicy } from './policy'
 import { resolveToolRequirements, resolvePnpmStorePath } from './tools'
 import { DEFAULT_SANDBOX_DOCKERFILE } from './default-dockerfile'
 import type { WorkspaceConfig, MountEntry, SandboxState, DotfileEntry } from '../shared/types'
+import { DEFAULT_INIT_TIMEOUT, DEFAULT_INSTALL_INIT_TIMEOUT } from '../shared/types'
 
-const HEALTH_MAX_ATTEMPTS = 60
-const INSTALL_HEALTH_MAX_ATTEMPTS = 300
 const HEALTH_INTERVAL_MS = 1000
 
 type DockerfileBuildSource =
@@ -323,9 +322,12 @@ async function startSandbox(
     }
   })
 
-  // Health-check loop
+  // Health-check loop: use explicit init_timeout if configured, otherwise fall
+  // back to the install-aware default (300s with an init/install command, 60s otherwise).
   let healthy = false
-  const maxHealthAttempts = installPlan.command ? INSTALL_HEALTH_MAX_ATTEMPTS : HEALTH_MAX_ATTEMPTS
+  const defaultInitTimeout = installPlan.command ? DEFAULT_INSTALL_INIT_TIMEOUT : DEFAULT_INIT_TIMEOUT
+  const initTimeoutSecs = workspaceConfig.sandbox?.init_timeout ?? globalConfig.initTimeout ?? defaultInitTimeout
+  const maxHealthAttempts = Math.ceil((initTimeoutSecs * 1000) / HEALTH_INTERVAL_MS)
   for (let attempt = 0; attempt < maxHealthAttempts; attempt++) {
     if (unexpectedExit) break
 
@@ -443,7 +445,7 @@ async function waitForSandbox(workspaceRoot: string): Promise<number | null> {
   const spinner = new Spinner('waiting for sandbox')
   spinner.start()
 
-  for (let i = 0; i < HEALTH_MAX_ATTEMPTS; i++) {
+  for (let i = 0; i < DEFAULT_INSTALL_INIT_TIMEOUT; i++) {
     spinner.update(`waiting for sandbox (${i + 1}s)`)
     await sleep(HEALTH_INTERVAL_MS)
 
