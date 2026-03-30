@@ -1384,22 +1384,30 @@ function detectPythonPackageManagerInstall(workspaceRoot: string): {
   const uvLockPath = path.join(workspaceRoot, 'uv.lock')
   const pyprojectPath = path.join(workspaceRoot, 'pyproject.toml')
   const requirementsPath = path.join(workspaceRoot, 'requirements.txt')
+  const preCommitConfigPath = path.join(workspaceRoot, '.pre-commit-config.yaml')
 
   const hasUvLock = fs.existsSync(uvLockPath)
   const hasPyproject = fs.existsSync(pyprojectPath)
   const hasRequirements = fs.existsSync(requirementsPath)
+  const hasPreCommitConfig = fs.existsSync(preCommitConfigPath)
 
   if (!hasUvLock && !hasRequirements) return null
 
   const setupSuffix = hasPyproject && hasUvSetupScript(pyprojectPath) ? ' && uv run setup' : ''
+  // Re-run `pre-commit install` so the hook's INSTALL_PYTHON is regenerated
+  // with the container's Python path rather than a stale host path.
+  // Use `uv run` so pre-commit is resolved from the project's venv rather
+  // than requiring it to be on PATH.
+  const preCommitSuffix = hasPreCommitConfig ? ' && uv run pre-commit install' : ''
 
   if (hasUvLock) {
     const fingerprintParts = [
       `install-uv-lock:${hashFileIfExists(uvLockPath) ?? 'missing'}`,
       `install-pyproject:${hashFileIfExists(pyprojectPath) ?? 'missing'}`,
+      `install-pre-commit-config:${hashFileIfExists(preCommitConfigPath) ?? 'absent'}`,
     ]
     return {
-      command: `uv sync${setupSuffix}`,
+      command: `uv sync${setupSuffix}${preCommitSuffix}`,
       tool: 'uv',
       fingerprintParts,
     }
@@ -1409,9 +1417,10 @@ function detectPythonPackageManagerInstall(workspaceRoot: string): {
   const fingerprintParts = [
     `install-requirements:${hashFileIfExists(requirementsPath) ?? 'missing'}`,
     ...(hasPyproject ? [`install-pyproject:${hashFileIfExists(pyprojectPath) ?? 'missing'}`] : []),
+    `install-pre-commit-config:${hashFileIfExists(preCommitConfigPath) ?? 'absent'}`,
   ]
   return {
-    command: `uv pip install -r requirements.txt${setupSuffix}`,
+    command: `uv pip install -r requirements.txt${setupSuffix}${preCommitSuffix}`,
     tool: 'uv',
     fingerprintParts,
   }
