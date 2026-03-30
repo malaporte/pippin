@@ -1,3 +1,10 @@
+## [0.13.1](https://github.com/malaporte/pippin/compare/v0.13.0...v0.13.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* run pre-commit install in container to fix stale INSTALL_PYTHON in git hooks ([#24](https://github.com/malaporte/pippin/issues/24)) ([a320a06](https://github.com/malaporte/pippin/commit/a320a06aef9261265c6e49ba4441c84d41c9f74d))
+
 # [0.13.0](https://github.com/malaporte/pippin/compare/v0.12.0...v0.13.0) (2026-03-27)
 
 
