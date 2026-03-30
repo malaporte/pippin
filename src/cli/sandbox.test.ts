@@ -604,6 +604,67 @@ describe('sandbox image resolution', () => {
     expect(secondHash).not.toBe(firstHash)
   })
 
+  it('appends pre-commit install when .pre-commit-config.yaml is present (uv.lock path)', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+    fs.writeFileSync(path.join(tmpDir, '.pre-commit-config.yaml'), 'repos: []\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv sync && uv run pre-commit install')
+    expect(plan.tool).toBe('uv')
+  })
+
+  it('appends pre-commit install when .pre-commit-config.yaml is present (requirements.txt path)', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'requirements.txt'), 'requests==2.31.0\n')
+    fs.writeFileSync(path.join(tmpDir, '.pre-commit-config.yaml'), 'repos: []\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv pip install -r requirements.txt && uv run pre-commit install')
+    expect(plan.tool).toBe('uv')
+  })
+
+  it('composes setup suffix and pre-commit install together', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), '[tool.uv.scripts]\nsetup = "python scripts/setup.py"\n')
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+    fs.writeFileSync(path.join(tmpDir, '.pre-commit-config.yaml'), 'repos: []\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv sync && uv run setup && uv run pre-commit install')
+  })
+
+  it('does not append pre-commit install when .pre-commit-config.yaml is absent', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'uv.lock'), 'version = 1\n')
+
+    const { __test__ } = await import('./sandbox')
+    const plan = __test__.resolveInstallPlan(tmpDir, {})
+
+    expect(plan.command).toBe('uv sync')
+  })
+
+  it('changes the config hash when .pre-commit-config.yaml changes', async () => {
+    childProcessMocks.spawn
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+      .mockImplementationOnce(() => createSimpleProcess({ exitCode: 0 }))
+
+    const uvLock = path.join(tmpDir, 'uv.lock')
+    const preCommitConfig = path.join(tmpDir, '.pre-commit-config.yaml')
+    fs.writeFileSync(uvLock, 'version = 1\n')
+    fs.writeFileSync(preCommitConfig, 'repos: []\n')
+
+    const { __test__ } = await import('./sandbox')
+    const firstHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    fs.writeFileSync(preCommitConfig, 'repos:\n  - repo: https://github.com/astral-sh/ruff-pre-commit\n    rev: v0.8.6\n')
+    const secondHash = await __test__.computeConfigHash(tmpDir, {}, defaultGlobalConfig())
+
+    expect(secondHash).not.toBe(firstHash)
+  })
+
   it('derives the workspace container name from the directory name with a path hash suffix', async () => {
     const { __test__ } = await import('./sandbox')
 
