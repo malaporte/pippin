@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process'
-import path from 'node:path'
-import { findWorkspace } from '../workspace'
+import { resolveWorkspace } from '../workspace'
+import { readGlobalConfig } from '../config'
 import { readState, isProcessAlive, isServerHealthy } from '../state'
 
 /** Open the leash Control UI for the current workspace sandbox in the default browser */
 export async function monitorCommand(): Promise<void> {
   const cwd = process.cwd()
-  const workspace = findWorkspace(cwd) ?? { root: path.resolve(cwd), config: {} }
+  const globalConfig = readGlobalConfig()
+  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
 
   const state = readState(workspace.root)
   if (!state) {

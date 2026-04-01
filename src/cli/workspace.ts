@@ -1,40 +1,43 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import { parse as parseToml } from 'smol-toml'
 import type { WorkspaceConfig, MountEntry } from '../shared/types'
 
-const WORKSPACE_CONFIG_FILE = '.pippin.toml'
-
 interface ResolvedWorkspace {
-  /** Absolute path to the directory containing .pippin.toml */
+  /** Absolute path to the workspace root (matched key or .git root) */
   root: string
   /** Parsed workspace configuration */
   config: WorkspaceConfig
 }
 
 /**
- * Walk from `startDir` upward to find a .pippin.toml file.
- * Returns the resolved workspace or null if not found.
+ * Find the workspace config for `cwd` by matching keys in the `workspaces`
+ * map from the global config. Each key is treated as a regex tested against
+ * the resolved cwd. The first matching key wins.
+ *
+ * For plain absolute paths (e.g. "/foo/bar") the regex matches as a prefix
+ * naturally when written as "/foo/bar" since it will match any cwd that
+ * contains that string — users who want strict prefix semantics should write
+ * "^/foo/bar(/|$)". Invalid regexes are skipped with a warning.
+ *
+ * Returns the matched config and the key, or null if no key matches.
  */
-export function findWorkspace(startDir: string): ResolvedWorkspace | null {
-  let dir = path.resolve(startDir)
+export function findWorkspaceConfig(
+  cwd: string,
+  workspaces: Record<string, WorkspaceConfig>,
+): { root: string; config: WorkspaceConfig } | null {
+  const resolvedCwd = path.resolve(cwd)
 
-  while (true) {
-    const configPath = path.join(dir, WORKSPACE_CONFIG_FILE)
+  for (const key of Object.keys(workspaces)) {
+    let re: RegExp
     try {
-      const text = fs.readFileSync(configPath, 'utf-8')
-      const parsed = parseToml(text) as unknown as WorkspaceConfig
-      return {
-        root: dir,
-        config: validateWorkspaceConfig(parsed),
-      }
+      re = new RegExp(key)
     } catch {
-      // File doesn't exist or is invalid — keep walking up
+      process.stderr.write(`pippin: warning: invalid workspace key regex "${key}" — skipping\n`)
+      continue
     }
-
-    const parent = path.dirname(dir)
-    if (parent === dir) break
-    dir = parent
+    if (re.test(resolvedCwd)) {
+      return { root: key, config: workspaces[key] }
+    }
   }
 
   return null
@@ -61,17 +64,20 @@ function findGitRoot(startDir: string): string | null {
 
 /**
  * Resolve the workspace for the current working directory.
- * If no .pippin.toml is found, walks up the directory tree to find a .git
- * entry and uses that directory as the implicit workspace root. If no .git
- * is found either, falls back silently to the current directory.
+ * Looks up `cwd` in the `workspaces` map (longest-prefix match).
+ * If no entry matches, walks up the directory tree to find a .git entry and
+ * uses that directory as the implicit workspace root with an empty config.
+ * Falls back silently to `cwd` itself if no .git is found either.
  */
-export function resolveWorkspace(cwd: string): ResolvedWorkspace {
-  const workspace = findWorkspace(cwd)
-  if (!workspace) {
-    const root = findGitRoot(cwd) ?? path.resolve(cwd)
-    return { root, config: {} }
-  }
-  return workspace
+export function resolveWorkspace(
+  cwd: string,
+  workspaces: Record<string, WorkspaceConfig>,
+): ResolvedWorkspace {
+  const match = findWorkspaceConfig(cwd, workspaces)
+  if (match) return match
+
+  const root = findGitRoot(cwd) ?? path.resolve(cwd)
+  return { root, config: {} }
 }
 
 /**
@@ -109,7 +115,7 @@ function isUnderPath(child: string, parent: string): boolean {
   return normalizedChild.startsWith(normalizedParent + path.sep)
 }
 
-function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
+export function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
   if (typeof raw !== 'object' || raw === null) return {}
 
   const obj = raw as Record<string, unknown>
@@ -121,6 +127,10 @@ function validateWorkspaceConfig(raw: unknown): WorkspaceConfig {
 
     if (typeof sandbox.idle_timeout === 'number' && sandbox.idle_timeout > 0) {
       config.sandbox.idle_timeout = sandbox.idle_timeout
+    }
+
+    if (typeof sandbox.init_timeout === 'number' && sandbox.init_timeout > 0) {
+      config.sandbox.init_timeout = sandbox.init_timeout
     }
 
     if (typeof sandbox.init === 'string' && sandbox.init.length > 0) {

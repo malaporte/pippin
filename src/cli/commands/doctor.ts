@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import kleur from 'kleur'
 import { readGlobalConfig, expandHome } from '../config'
-import { findWorkspace, resolveWorkspace } from '../workspace'
+import { findWorkspaceConfig, resolveWorkspace } from '../workspace'
 import { resolveGpgSocketInfo, resolveInstallPlan, resolveServerBinary } from '../sandbox'
 import { resolvePolicy } from '../policy'
 import { RECIPES, KNOWN_TOOLS, resolveToolRequirements } from '../tools'
@@ -154,30 +154,35 @@ function checkGlobalConfig(): CheckResult[] {
 function checkWorkspace(): CheckResult[] {
   const results: CheckResult[] = []
   const cwd = process.cwd()
-  const workspace = findWorkspace(cwd)
+  const globalConfig = readGlobalConfig()
+  const match = findWorkspaceConfig(cwd, globalConfig.workspaces)
 
-  if (!workspace) {
+  if (!match) {
     // No workspace config is fine — pippin works without one
     return results
   }
 
-  results.push(pass('Workspace config', path.join(workspace.root, '.pippin.toml')))
-  const globalConfig = readGlobalConfig()
-  const config = workspace.config
+  results.push(pass('Workspace config', `${match.root} (from ~/.config/pippin/config.json)`))
+  const config = match.config
 
   // Validate policy file
   if (config.sandbox?.policy) {
-    const resolved = path.resolve(workspace.root, expandHome(config.sandbox.policy))
-    if (!fs.existsSync(resolved)) {
-      results.push(fail('Workspace policy', `${resolved} does not exist`))
+    const raw = config.sandbox.policy
+    if (!path.isAbsolute(raw) && !raw.startsWith('~/')) {
+      results.push(fail('Workspace policy', `path must be absolute or ~-prefixed, got: "${raw}"`))
     } else {
-      results.push(pass('Workspace policy', resolved))
+      const resolved = path.resolve(expandHome(raw))
+      if (!fs.existsSync(resolved)) {
+        results.push(fail('Workspace policy', `${resolved} does not exist`))
+      } else {
+        results.push(pass('Workspace policy', resolved))
+      }
     }
   }
 
   // Validate dockerfile
   if (config.sandbox?.dockerfile) {
-    const resolved = path.resolve(workspace.root, config.sandbox.dockerfile)
+    const resolved = path.resolve(expandHome(config.sandbox.dockerfile))
     if (!fs.existsSync(resolved)) {
       results.push(fail('Workspace Dockerfile', `${resolved} does not exist`))
     }
@@ -225,15 +230,15 @@ function checkWorkspace(): CheckResult[] {
 
 function checkSandboxImageSelection(): CheckResult {
   const globalConfig = readGlobalConfig()
-  const workspace = findWorkspace(process.cwd())
-  const sandbox = workspace?.config.sandbox
+  const match = findWorkspaceConfig(process.cwd(), globalConfig.workspaces)
+  const sandbox = match?.config.sandbox
 
   if (sandbox?.image) {
     return pass('Sandbox image', `workspace image ${sandbox.image}`)
   }
 
   if (sandbox?.dockerfile) {
-    const resolved = path.resolve(workspace!.root, expandHome(sandbox.dockerfile))
+    const resolved = path.resolve(expandHome(sandbox.dockerfile))
     return pass('Sandbox image', `workspace dockerfile ${resolved}`)
   }
 
@@ -252,8 +257,8 @@ function checkSandboxImageSelection(): CheckResult {
 function checkGpgAgentForwarding(): CheckResult[] {
   const results: CheckResult[] = []
   const globalConfig = readGlobalConfig()
-  const workspace = findWorkspace(process.cwd())
-  const workspaceTools = workspace?.config.sandbox?.tools ?? []
+  const match = findWorkspaceConfig(process.cwd(), globalConfig.workspaces)
+  const workspaceTools = match?.config.sandbox?.tools ?? []
   const tools = [...new Set([...globalConfig.tools, ...workspaceTools])]
   const toolReqs = resolveToolRequirements(tools)
 
@@ -286,8 +291,8 @@ function checkTools(): CheckResult[] {
   const results: CheckResult[] = []
   const globalConfig = readGlobalConfig()
   const cwd = process.cwd()
-  const workspace = findWorkspace(cwd)
-  const workspaceTools = workspace?.config.sandbox?.tools ?? []
+  const match = findWorkspaceConfig(cwd, globalConfig.workspaces)
+  const workspaceTools = match?.config.sandbox?.tools ?? []
 
   // Merge tools from both configs
   const tools = [...new Set([...globalConfig.tools, ...workspaceTools])]
@@ -305,15 +310,12 @@ function checkTools(): CheckResult[] {
 
     // Check that credential files / directories exist on the host
     const details: string[] = []
-    let hasCredentials = true
 
     if (recipe.dotfiles) {
       for (const df of recipe.dotfiles) {
         const expanded = expandHome(df.path)
         if (fs.existsSync(expanded)) {
           details.push(df.path)
-        } else {
-          hasCredentials = false
         }
       }
     }
@@ -352,7 +354,7 @@ function checkTools(): CheckResult[] {
     // Warn if tool is also in hostCommands (informational)
     const hostCommands = new Set([
       ...globalConfig.hostCommands,
-      ...(workspace?.config.sandbox?.host_commands ?? []),
+      ...(match?.config.sandbox?.host_commands ?? []),
     ])
     if (hostCommands.has(name)) {
       results.push(pass(`Tool: ${recipe.name}`, `also in host_commands (host_commands takes precedence at exec time)`))
@@ -364,7 +366,8 @@ function checkTools(): CheckResult[] {
 
 function checkAutoInstall(): CheckResult[] {
   const cwd = process.cwd()
-  const workspace = resolveWorkspace(cwd)
+  const globalConfig = readGlobalConfig()
+  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
   const plan = resolveInstallPlan(workspace.root, workspace.config)
 
   return [describeAutoInstallPlan(plan)]

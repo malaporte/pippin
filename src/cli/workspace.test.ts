@@ -2,329 +2,81 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { findWorkspace, resolveWorkspace, validateCwd } from './workspace'
+import { findWorkspaceConfig, resolveWorkspace, validateCwd } from './workspace'
+import type { WorkspaceConfig } from '../shared/types'
 
-describe('findWorkspace', () => {
-  let tmpDir: string
-
-  beforeEach(() => {
-    // Resolve symlinks so macOS /var -> /private/var doesn't cause mismatches
-    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pippin-test-')))
-  })
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-  })
-
-  it('finds .pippin.toml in the start directory', () => {
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), '[sandbox]\n')
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.root).toBe(fs.realpathSync(tmpDir))
-  })
-
-  it('finds .pippin.toml in a parent directory', () => {
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), '[sandbox]\nidle_timeout = 300\n')
-    const nested = path.join(tmpDir, 'a', 'b', 'c')
-    fs.mkdirSync(nested, { recursive: true })
-
-    const result = findWorkspace(nested)
-    expect(result).not.toBeNull()
-    expect(result!.root).toBe(fs.realpathSync(tmpDir))
-    expect(result!.config.sandbox?.idle_timeout).toBe(300)
-  })
-
-  it('returns null when no .pippin.toml exists', () => {
-    const nested = path.join(tmpDir, 'empty')
-    fs.mkdirSync(nested, { recursive: true })
-
-    const result = findWorkspace(nested)
+describe('findWorkspaceConfig', () => {
+  it('returns null when workspaces map is empty', () => {
+    const result = findWorkspaceConfig('/foo/bar/baz', {})
     expect(result).toBeNull()
   })
 
-  it('parses extra mounts from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-
-[[sandbox.mounts]]
-path = "~/Developer/libs"
-
-[[sandbox.mounts]]
-path = "~/Developer/other"
-readonly = true
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.mounts).toHaveLength(2)
-    expect(result!.config.sandbox?.mounts![0].path).toBe('~/Developer/libs')
-    expect(result!.config.sandbox?.mounts![1].readonly).toBe(true)
+  it('returns null when no key matches cwd', () => {
+    const workspaces: Record<string, WorkspaceConfig> = {
+      '^/other/path': { sandbox: { init: 'echo other' } },
+    }
+    const result = findWorkspaceConfig('/foo/bar', workspaces)
+    expect(result).toBeNull()
   })
 
-  it('handles empty .pippin.toml', () => {
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), '')
-
-    const result = findWorkspace(tmpDir)
+  it('matches a plain absolute path key (substring match)', () => {
+    const workspaces: Record<string, WorkspaceConfig> = {
+      '/foo/bar': { sandbox: { init: 'bun install' } },
+    }
+    const result = findWorkspaceConfig('/foo/bar', workspaces)
     expect(result).not.toBeNull()
-    expect(result!.config).toEqual({})
-  })
-
-  it('parses image from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-image = "my-registry/custom:latest"
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.image).toBe('my-registry/custom:latest')
-    expect(result!.config.sandbox?.dockerfile).toBeUndefined()
-  })
-
-  it('parses dockerfile from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-dockerfile = "./Dockerfile.pippin"
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.dockerfile).toBe('./Dockerfile.pippin')
-    expect(result!.config.sandbox?.image).toBeUndefined()
-  })
-
-  it('parses both image and dockerfile from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-image = "my-registry/custom:latest"
-dockerfile = "./Dockerfile.pippin"
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.image).toBe('my-registry/custom:latest')
-    expect(result!.config.sandbox?.dockerfile).toBe('./Dockerfile.pippin')
-  })
-
-  it('ignores invalid image values in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-image = 42
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.image).toBeUndefined()
-  })
-
-  it('ignores empty string image in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-image = ""
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.image).toBeUndefined()
-  })
-
-  it('parses host_commands from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-host_commands = ["git", "ssh"]
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.host_commands).toEqual(['git', 'ssh'])
-  })
-
-  it('parses init from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-init = "bun install"
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
+    expect(result!.root).toBe('/foo/bar')
     expect(result!.config.sandbox?.init).toBe('bun install')
   })
 
-  it('ignores empty string init in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-init = ""
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
+  it('matches a plain path key against a subdirectory', () => {
+    const workspaces: Record<string, WorkspaceConfig> = {
+      '/foo/bar': { sandbox: { idle_timeout: 300 } },
+    }
+    const result = findWorkspaceConfig('/foo/bar/src/deep', workspaces)
     expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.init).toBeUndefined()
+    expect(result!.config.sandbox?.idle_timeout).toBe(300)
   })
 
-  it('ignores invalid init values in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-init = 42
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
+  it('returns first matching key when multiple keys match', () => {
+    const workspaces: Record<string, WorkspaceConfig> = {
+      '^/foo': { sandbox: { init: 'first' } },
+      '^/foo/bar': { sandbox: { init: 'second' } },
+    }
+    // first key wins regardless of specificity
+    const result = findWorkspaceConfig('/foo/bar/baz', workspaces)
     expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.init).toBeUndefined()
+    expect(result!.config.sandbox?.init).toBe('first')
   })
 
-  it('parses auto_install from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-auto_install = false
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.auto_install).toBe(false)
+  it('matches a regex key with anchoring', () => {
+    const workspaces: Record<string, WorkspaceConfig> = {
+      '^/foo/bar(/|$)': { sandbox: { init: 'anchored' } },
+    }
+    expect(findWorkspaceConfig('/foo/bar/baz', workspaces)?.config.sandbox?.init).toBe('anchored')
+    expect(findWorkspaceConfig('/foo/bar', workspaces)?.config.sandbox?.init).toBe('anchored')
+    expect(findWorkspaceConfig('/foo/bar-extra', workspaces)).toBeNull()
   })
 
-  it('ignores invalid auto_install values in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-auto_install = "no"
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.auto_install).toBeUndefined()
+  it('matches a regex key with a capture group / alternation', () => {
+    const workspaces: Record<string, WorkspaceConfig> = {
+      '^/(foo|bar)/project': { sandbox: { init: 'multi' } },
+    }
+    expect(findWorkspaceConfig('/foo/project/src', workspaces)?.config.sandbox?.init).toBe('multi')
+    expect(findWorkspaceConfig('/bar/project', workspaces)?.config.sandbox?.init).toBe('multi')
+    expect(findWorkspaceConfig('/baz/project', workspaces)).toBeNull()
   })
 
-  it('parses install_command from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-install_command = "pnpm install --frozen-lockfile"
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.install_command).toBe('pnpm install --frozen-lockfile')
-  })
-
-  it('ignores empty install_command in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-install_command = ""
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.install_command).toBeUndefined()
-  })
-
-  it('filters invalid host_commands entries', () => {
-    const toml = `
-[sandbox]
-host_commands = ["git", 42, "ssh"]
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.host_commands).toEqual(['git', 'ssh'])
-  })
-
-  it('omits host_commands when not present in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-idle_timeout = 300
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.host_commands).toBeUndefined()
-  })
-
-  it('parses ssh_agent from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-ssh_agent = true
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.ssh_agent).toBe(true)
-  })
-
-  it('parses ssh_agent = false from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-ssh_agent = false
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.ssh_agent).toBe(false)
-  })
-
-  it('ignores non-boolean ssh_agent in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-ssh_agent = "yes"
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.ssh_agent).toBeUndefined()
-  })
-
-  it('parses tools from .pippin.toml', () => {
-    const toml = `
-[sandbox]
-tools = ["git", "gh", "aws"]
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.tools).toEqual(['git', 'gh', 'aws'])
-  })
-
-  it('filters invalid tools entries', () => {
-    const toml = `
-[sandbox]
-tools = ["git", 42, "aws"]
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.tools).toEqual(['git', 'aws'])
-  })
-
-  it('omits tools when not present in .pippin.toml', () => {
-    const toml = `
-[sandbox]
-idle_timeout = 300
-`
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), toml)
-
-    const result = findWorkspace(tmpDir)
-    expect(result).not.toBeNull()
-    expect(result!.config.sandbox?.tools).toBeUndefined()
+  it('skips invalid regex keys with a warning and continues', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const workspaces: Record<string, WorkspaceConfig> = {
+      '[invalid': { sandbox: { init: 'bad' } },
+      '^/foo': { sandbox: { init: 'good' } },
+    }
+    const result = findWorkspaceConfig('/foo/bar', workspaces)
+    expect(result?.config.sandbox?.init).toBe('good')
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('invalid workspace key regex'))
+    stderrSpy.mockRestore()
   })
 })
 
@@ -339,27 +91,22 @@ describe('resolveWorkspace', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('returns the found workspace when .pippin.toml exists', () => {
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), '[sandbox]\nidle_timeout = 600\n')
-
-    const result = resolveWorkspace(tmpDir)
+  it('returns the matched workspace when a key matches cwd', () => {
+    const workspaces: Record<string, WorkspaceConfig> = {
+      [tmpDir]: { sandbox: { idle_timeout: 600 } },
+    }
+    const result = resolveWorkspace(tmpDir, workspaces)
     expect(result.root).toBe(tmpDir)
     expect(result.config.sandbox?.idle_timeout).toBe(600)
   })
 
-  it('returns implicit workspace rooted at cwd when no .pippin.toml and no .git exists', () => {
+  it('returns implicit workspace rooted at cwd when no match and no .git exists', () => {
     const nested = path.join(tmpDir, 'no-config')
     fs.mkdirSync(nested, { recursive: true })
 
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    try {
-      const result = resolveWorkspace(nested)
-      expect(result.root).toBe(nested)
-      expect(result.config).toEqual({})
-      expect(stderrSpy).not.toHaveBeenCalled()
-    } finally {
-      stderrSpy.mockRestore()
-    }
+    const result = resolveWorkspace(nested, {})
+    expect(result.root).toBe(nested)
+    expect(result.config).toEqual({})
   })
 
   it('uses .git directory in ancestor as implicit workspace root', () => {
@@ -367,7 +114,7 @@ describe('resolveWorkspace', () => {
     fs.mkdirSync(nested, { recursive: true })
     fs.mkdirSync(path.join(tmpDir, 'project', '.git'))
 
-    const result = resolveWorkspace(nested)
+    const result = resolveWorkspace(nested, {})
     expect(result.root).toBe(path.join(tmpDir, 'project'))
     expect(result.config).toEqual({})
   })
@@ -377,20 +124,21 @@ describe('resolveWorkspace', () => {
     fs.mkdirSync(nested, { recursive: true })
     fs.writeFileSync(path.join(tmpDir, 'worktree', '.git'), 'gitdir: ../.git/worktrees/my-branch\n')
 
-    const result = resolveWorkspace(nested)
+    const result = resolveWorkspace(nested, {})
     expect(result.root).toBe(path.join(tmpDir, 'worktree'))
     expect(result.config).toEqual({})
   })
 
-  it('.pippin.toml takes priority over .git when both are present', () => {
+  it('workspaces map takes priority over .git when both match', () => {
     const nested = path.join(tmpDir, 'project', 'src')
     fs.mkdirSync(nested, { recursive: true })
-    // .git at project level
     fs.mkdirSync(path.join(tmpDir, 'project', '.git'))
-    // .pippin.toml at a higher level
-    fs.writeFileSync(path.join(tmpDir, '.pippin.toml'), '[sandbox]\nidle_timeout = 120\n')
 
-    const result = resolveWorkspace(nested)
+    // workspace key points to a higher directory
+    const workspaces: Record<string, WorkspaceConfig> = {
+      [tmpDir]: { sandbox: { idle_timeout: 120 } },
+    }
+    const result = resolveWorkspace(nested, workspaces)
     expect(result.root).toBe(tmpDir)
     expect(result.config.sandbox?.idle_timeout).toBe(120)
   })

@@ -1,5 +1,4 @@
 import { execCommand } from './commands/exec'
-import { initCommand } from './commands/init'
 import { monitorCommand } from './commands/monitor'
 import { policyCommand } from './commands/policy'
 import { shellCommand } from './commands/shell'
@@ -42,11 +41,6 @@ switch (firstArg) {
 
   case 'shell': {
     await shellCommand()
-    break
-  }
-
-  case 'init': {
-    initCommand()
     break
   }
 
@@ -128,7 +122,6 @@ function printUsage(): void {
        pippin shell               open an interactive shell in the sandbox
        pippin codex [args]        run OpenAI Codex CLI in the sandbox
        pippin copilot [args]      run GitHub Copilot CLI in the sandbox
-       pippin init                create .pippin.toml in the current directory
        pippin status [--all]      show sandbox status
        pippin stop [--all]        stop sandbox(es)
        pippin restart             restart the sandbox (applies config changes)

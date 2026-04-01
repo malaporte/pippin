@@ -5,8 +5,8 @@ import { resolvePolicy, readPolicyFile, describePolicySource } from '../policy'
 /** Show the active Cedar policy for the current workspace */
 export function policyCommand(validate: boolean): void {
   const cwd = process.cwd()
-  const workspace = resolveWorkspace(cwd)
   const globalConfig = readGlobalConfig()
+  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
 
   const policyPath = resolvePolicy(workspace.root, workspace.config, globalConfig)
   const source = describePolicySource(workspace.config, globalConfig)
@@ -16,7 +16,7 @@ export function policyCommand(validate: boolean): void {
 
   if (!policyPath) {
     process.stdout.write(`\nno policy configured — sandbox runs with no restrictions\n`)
-    process.stdout.write(`\nto add a policy, set sandbox.policy in .pippin.toml or "policy" in ~/.config/pippin/config.json\n`)
+    process.stdout.write(`\nto add a policy, set sandbox.policy in the workspaces entry in ~/.config/pippin/config.json or set "policy" globally\n`)
     return
   }
 

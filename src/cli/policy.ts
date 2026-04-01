@@ -8,12 +8,13 @@ import type { WorkspaceConfig } from '../shared/types'
  * Resolve the Cedar policy file path for a sandbox.
  *
  * Priority (first match wins):
- *   1. workspace sandbox.policy  (relative to workspace root)
+ *   1. workspace sandbox.policy  (must be absolute or ~-prefixed)
  *   2. global policy             (absolute or ~ path)
  *   3. undefined → leash uses its default permissive policy
  *
  * Returns the absolute path to the .cedar file, or undefined if no policy
- * is configured. Exits with an error if a configured path does not exist.
+ * is configured. Exits with an error if a configured path does not exist or
+ * is a bare relative path.
  */
 export function resolvePolicy(
   workspaceRoot: string,
@@ -22,10 +23,16 @@ export function resolvePolicy(
 ): string | undefined {
   // Workspace-level policy takes top priority
   if (workspaceConfig.sandbox?.policy) {
-    const resolved = path.resolve(workspaceRoot, expandHome(workspaceConfig.sandbox.policy))
+    const raw = workspaceConfig.sandbox.policy
+    if (!path.isAbsolute(raw) && !raw.startsWith('~/')) {
+      process.stderr.write(`pippin: workspace policy path must be absolute or start with ~/ — got: "${raw}"\n`)
+      process.stderr.write(`pippin: set sandbox.policy in the workspaces entry in ~/.config/pippin/config.json\n`)
+      process.exit(1)
+    }
+    const resolved = path.resolve(expandHome(raw))
     if (!fs.existsSync(resolved)) {
       process.stderr.write(`pippin: workspace policy file not found: ${resolved}\n`)
-      process.stderr.write(`pippin: configured in .pippin.toml as sandbox.policy = "${workspaceConfig.sandbox.policy}"\n`)
+      process.stderr.write(`pippin: configured in ~/.config/pippin/config.json workspaces["${workspaceRoot}"].sandbox.policy\n`)
       process.exit(1)
     }
     return resolved
@@ -68,7 +75,7 @@ export function describePolicySource(
   globalConfig: ResolvedGlobalConfig,
 ): string {
   if (workspaceConfig.sandbox?.policy) {
-    return `workspace (.pippin.toml sandbox.policy = "${workspaceConfig.sandbox.policy}")`
+    return `workspace (config.json workspaces sandbox.policy = "${workspaceConfig.sandbox.policy}")`
   }
   if (globalConfig.policy) {
     return `global (~/.config/pippin/config.json "policy": "${globalConfig.policy}")`

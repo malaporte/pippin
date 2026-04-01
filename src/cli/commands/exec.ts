@@ -30,8 +30,8 @@ async function execOnHost(cmd: string): Promise<void> {
 /** Execute a command inside the sandbox */
 export async function execCommand(cmd: string): Promise<void> {
   const cwd = process.cwd()
-  const workspace = resolveWorkspace(cwd)
   const globalConfig = readGlobalConfig()
+  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
 
   // Merge host commands from global and workspace configs (union)
   const hostCommands = new Set<string>([
