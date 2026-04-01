@@ -16,6 +16,7 @@ function makeGlobalConfig(overrides: Partial<ResolvedGlobalConfig> = {}): Resolv
     sshAgent: false,
     tools: [],
     shell: 'bash',
+    workspaces: {},
     image: undefined,
     dockerfile: undefined,
     policy: undefined,
@@ -41,11 +42,11 @@ describe('resolvePolicy', () => {
     expect(result).toBeUndefined()
   })
 
-  it('resolves workspace policy relative to workspace root', () => {
+  it('resolves workspace policy with absolute path', () => {
     const policyPath = path.join(tmpDir, 'sandbox.cedar')
     fs.writeFileSync(policyPath, 'permit (principal, action, resource);')
 
-    const config: WorkspaceConfig = { sandbox: { policy: 'sandbox.cedar' } }
+    const config: WorkspaceConfig = { sandbox: { policy: policyPath } }
     const global = makeGlobalConfig()
     const result = resolvePolicy(tmpDir, config, global)
     expect(result).toBe(policyPath)
@@ -67,14 +68,14 @@ describe('resolvePolicy', () => {
     fs.writeFileSync(workspacePolicy, 'forbid (principal, action, resource);')
     fs.writeFileSync(globalPolicy, 'permit (principal, action, resource);')
 
-    const config: WorkspaceConfig = { sandbox: { policy: 'workspace.cedar' } }
+    const config: WorkspaceConfig = { sandbox: { policy: workspacePolicy } }
     const global = makeGlobalConfig({ policy: globalPolicy })
     const result = resolvePolicy(tmpDir, config, global)
     expect(result).toBe(workspacePolicy)
   })
 
   it('exits with error when workspace policy file does not exist', () => {
-    const config: WorkspaceConfig = { sandbox: { policy: 'nonexistent.cedar' } }
+    const config: WorkspaceConfig = { sandbox: { policy: '/nonexistent/sandbox.cedar' } }
     const global = makeGlobalConfig()
 
     const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit') })
@@ -101,16 +102,30 @@ describe('resolvePolicy', () => {
     mockStderr.mockRestore()
   })
 
-  it('resolves workspace policy in a subdirectory', () => {
+  it('resolves workspace policy in a subdirectory via absolute path', () => {
     const subdir = path.join(tmpDir, 'policies')
     fs.mkdirSync(subdir, { recursive: true })
     const policyPath = path.join(subdir, 'strict.cedar')
     fs.writeFileSync(policyPath, 'forbid (principal, action, resource);')
 
-    const config: WorkspaceConfig = { sandbox: { policy: 'policies/strict.cedar' } }
+    const config: WorkspaceConfig = { sandbox: { policy: policyPath } }
     const global = makeGlobalConfig()
     const result = resolvePolicy(tmpDir, config, global)
     expect(result).toBe(policyPath)
+  })
+
+  it('exits with error when workspace policy is a bare relative path', () => {
+    const config: WorkspaceConfig = { sandbox: { policy: 'relative/path.cedar' } }
+    const global = makeGlobalConfig()
+
+    const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit') })
+    const mockStderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+    expect(() => resolvePolicy(tmpDir, config, global)).toThrow('exit')
+    expect(mockStderr).toHaveBeenCalledWith(expect.stringContaining('must be absolute or start with ~/'))
+
+    mockExit.mockRestore()
+    mockStderr.mockRestore()
   })
 })
 

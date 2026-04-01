@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { readGlobalConfig, expandHome } from '../config'
-import { findWorkspace } from '../workspace'
+import { resolveWorkspace } from '../workspace'
 import { readState, listStates, isProcessAlive, isServerHealthy } from '../state'
 
 function describeSandboxImageSource(workspaceRoot: string, workspaceConfig: { sandbox?: { image?: string; dockerfile?: string } }): string {
@@ -25,7 +25,8 @@ export async function statusCommand(showAll: boolean): Promise<void> {
 
 async function showWorkspaceStatus(): Promise<void> {
   const cwd = process.cwd()
-  const workspace = findWorkspace(cwd) ?? { root: path.resolve(cwd), config: {} }
+  const globalConfig = readGlobalConfig()
+  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
   const configuredImage = describeSandboxImageSource(workspace.root, workspace.config)
 
   const state = readState(workspace.root)

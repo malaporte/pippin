@@ -56,7 +56,8 @@ function buildPS1(): string {
 /** Open an interactive shell inside the sandbox */
 export async function shellCommand(): Promise<void> {
   const cwd = process.cwd()
-  const workspace = resolveWorkspace(cwd)
+  const globalConfig = readGlobalConfig()
+  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
 
   // Expand ~ in extra mounts for CWD validation
   const extraMounts: MountEntry[] = (workspace.config.sandbox?.mounts ?? []).map((m) => ({
@@ -76,7 +77,6 @@ export async function shellCommand(): Promise<void> {
   const port = await ensureSandbox(workspace.root, workspace.config)
 
   // Resolve the shell: workspace config > global config > default
-  const globalConfig = readGlobalConfig()
   const shell = workspace.config.sandbox?.shell ?? globalConfig.shell ?? DEFAULT_SHELL
 
   // Build the pippin-branded PS1

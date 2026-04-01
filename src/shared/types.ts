@@ -87,7 +87,7 @@ export interface ExecParams {
   tty?: boolean
 }
 
-// --- Workspace Config (.pippin.toml) ---
+// --- Workspace Config (per-path section in ~/.config/pippin/config.json) ---
 
 export interface MountEntry {
   path: string
@@ -110,7 +110,7 @@ export interface WorkspaceConfig {
     image?: string
     /** Path to a Dockerfile to build and use for the sandbox container */
     dockerfile?: string
-    /** Path to a Cedar policy file for sandbox enforcement (relative to workspace root) */
+    /** Absolute or ~-prefixed path to a Cedar policy file for sandbox enforcement */
     policy?: string
     /** Shell to use for `pippin shell` (e.g. "bash", "zsh", "sh") */
     shell?: string
@@ -151,6 +151,8 @@ export interface GlobalConfig {
   sshAgent?: boolean
   /** Tools to auto-configure in the sandbox (e.g. "git", "gh", "aws"). Pippin mounts credentials and sets env vars automatically. */
   tools?: string[]
+  /** Per-workspace sandbox configuration, keyed by absolute workspace path */
+  workspaces?: Record<string, WorkspaceConfig>
 }
 
 // --- Sandbox State ---

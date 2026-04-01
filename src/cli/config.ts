@@ -2,14 +2,15 @@ import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import { DEFAULT_IDLE_TIMEOUT, DEFAULT_INIT_TIMEOUT, DEFAULT_PORT } from '../shared/types'
-import type { GlobalConfig, DotfileEntry } from '../shared/types'
+import type { GlobalConfig, DotfileEntry, WorkspaceConfig } from '../shared/types'
 import { KNOWN_TOOLS } from './tools'
+import { validateWorkspaceConfig } from './workspace'
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'pippin')
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
 
 /** Resolved global config: fields with defaults are always present, optional overrides may be undefined */
-export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'idleTimeout' | 'portRangeStart' | 'dotfiles' | 'environment' | 'shell' | 'hostCommands' | 'sshAgent' | 'tools'>> & Pick<GlobalConfig, 'initTimeout' | 'image' | 'dockerfile' | 'policy'>
+export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'idleTimeout' | 'portRangeStart' | 'dotfiles' | 'environment' | 'shell' | 'hostCommands' | 'sshAgent' | 'tools' | 'workspaces'>> & Pick<GlobalConfig, 'initTimeout' | 'image' | 'dockerfile' | 'policy'>
 
 /** Read the global pippin config, returning defaults for missing values */
 export function readGlobalConfig(): ResolvedGlobalConfig {
@@ -22,6 +23,7 @@ export function readGlobalConfig(): ResolvedGlobalConfig {
     sshAgent: false,
     tools: [...KNOWN_TOOLS],
     shell: 'bash',
+    workspaces: {},
     image: undefined,
     dockerfile: undefined,
     policy: undefined,
@@ -74,6 +76,7 @@ export function readGlobalConfig(): ResolvedGlobalConfig {
     shell: typeof parsed.shell === 'string' && parsed.shell.length > 0
       ? parsed.shell
       : defaults.shell,
+    workspaces: parseWorkspaces(parsed.workspaces),
     image: typeof parsed.image === 'string' && parsed.image.length > 0
       ? parsed.image
       : defaults.image,
@@ -98,6 +101,17 @@ export function expandHome(p: string): string {
     return path.join(os.homedir(), p.slice(1))
   }
   return p
+}
+
+function parseWorkspaces(raw: unknown): Record<string, WorkspaceConfig> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
+  const result: Record<string, WorkspaceConfig> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof key === 'string' && key.length > 0) {
+      result[key] = validateWorkspaceConfig(value)
+    }
+  }
+  return result
 }
 
 function isValidDotfileEntry(entry: unknown): entry is DotfileEntry {

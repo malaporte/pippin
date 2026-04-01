@@ -324,4 +324,71 @@ describe('writeGlobalConfig + readGlobalConfig round-trip', () => {
     const cfg = readGlobalConfig()
     expect(cfg.tools).toEqual(KNOWN_TOOLS)
   })
+
+  it('defaults workspaces to empty object when not present', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({ idleTimeout: 300 }))
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.workspaces).toEqual({})
+  })
+
+  it('parses workspaces entries and validates each one', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cfgDir, 'config.json'),
+      JSON.stringify({
+        workspaces: {
+          '/foo/bar': { sandbox: { init: 'bun install', idle_timeout: 300 } },
+          '/other': { sandbox: { image: 'custom:latest' } },
+        },
+      }),
+    )
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.workspaces['/foo/bar'].sandbox?.init).toBe('bun install')
+    expect(cfg.workspaces['/foo/bar'].sandbox?.idle_timeout).toBe(300)
+    expect(cfg.workspaces['/other'].sandbox?.image).toBe('custom:latest')
+  })
+
+  it('skips invalid workspace entries but keeps valid ones', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cfgDir, 'config.json'),
+      JSON.stringify({
+        workspaces: {
+          '/valid': { sandbox: { init: 'npm install' } },
+          '/bad-image': { sandbox: { image: 42 } },
+        },
+      }),
+    )
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.workspaces['/valid'].sandbox?.init).toBe('npm install')
+    // invalid image is silently dropped
+    expect(cfg.workspaces['/bad-image'].sandbox?.image).toBeUndefined()
+  })
+
+  it('defaults workspaces to empty object when value is not an object', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cfgDir, 'config.json'),
+      JSON.stringify({ workspaces: 'not-an-object' }),
+    )
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.workspaces).toEqual({})
+  })
 })

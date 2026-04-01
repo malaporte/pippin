@@ -129,6 +129,7 @@ describe('sandbox image resolution', () => {
       sshAgent: false,
       tools: [],
       shell: 'bash',
+      workspaces: {},
       image: undefined,
       dockerfile: undefined,
       policy: undefined,
