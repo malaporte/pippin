@@ -30,7 +30,7 @@ Pippin is also useful as a general-purpose sandboxing tool — run any project's
 
 ## How it works
 
-1. `pippin run <command>` finds your workspace root: the nearest `.pippin.toml` up the directory tree, then the nearest `.git` root, then the current directory.
+1. `pippin run <command>` finds your workspace root: the first matching entry in the `workspaces` map in `~/.config/pippin/config.json`, then the nearest `.git` root, then the current directory.
 2. If no sandbox is running, Pippin starts a container with your workspace mounted.
 3. A lightweight server inside the container receives the command over WebSocket and executes it.
 4. stdout/stderr stream back to your terminal live. A full PTY is allocated, so stdin, signals, and terminal resize events are all forwarded — interactive TUI apps work seamlessly.
@@ -79,15 +79,22 @@ cd my-project
 pippin run hostname   # prints the container's hostname, not the host's
 ```
 
-When no `.pippin.toml` is found, Pippin walks up the directory tree to find a `.git` entry and uses that directory as the workspace root — so running from any subdirectory of a Git repo does the right thing automatically, including Git worktrees. If no `.git` is found either, the current directory is used. Only the workspace root and its children are mounted into the sandbox.
+When no matching entry is found in the `workspaces` map, Pippin walks up the directory tree to find a `.git` entry and uses that directory as the workspace root — so running from any subdirectory of a Git repo does the right thing automatically, including Git worktrees. If no `.git` is found either, the current directory is used. Only the workspace root and its children are mounted into the sandbox.
 
-To customize the sandbox (idle timeout, extra mounts, custom images, security policies), create a config file:
+To customize the sandbox (idle timeout, extra mounts, custom images, security policies), add a `workspaces` entry to `~/.config/pippin/config.json`:
 
-```sh
-pippin init
+```json
+// ~/.config/pippin/config.json
+{
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": {
+        "init": "bun install"
+      }
+    }
+  }
+}
 ```
-
-This creates a `.pippin.toml` file with commented-out examples of all available settings.
 
 ## Commands
 
@@ -95,7 +102,6 @@ This creates a `.pippin.toml` file with commented-out examples of all available 
 | -------------------------- | ------------------------------------------------ |
 | `pippin run <cmd>`         | Run a command inside the sandbox                 |
 | `pippin shell`             | Open an interactive shell in the sandbox         |
-| `pippin init`              | Create a `.pippin.toml` in the current directory |
 | `pippin monitor`           | Open the leash Control UI in your browser        |
 | `pippin policy`            | Show the active Cedar policy for this workspace  |
 | `pippin policy --validate` | Basic structural validation of the policy file   |
@@ -109,52 +115,39 @@ This creates a `.pippin.toml` file with commented-out examples of all available 
 
 ## Configuration
 
-### Workspace config (`.pippin.toml`) — optional
+### Workspace config — optional
 
-A `.pippin.toml` file marks the workspace root and lets you customize the sandbox. If no config file is found, Pippin walks up the directory tree to find a `.git` entry and uses that as the implicit workspace root (falling back to the current directory if none is found).
+Workspace-specific sandbox settings live in `~/.config/pippin/config.json` under a `workspaces` map. Each key is a regex tested against the resolved current working directory — the first matching key wins.
 
-```toml
-[sandbox]
-# Override the global idle timeout (seconds)
-idle_timeout = 900
-
-# Run a shell command inside the container after each fresh sandbox start.
-# This takes priority over auto-detected dependency installs.
-# init = "bun install"
-
-# Auto-detect and run the repo's package-manager install command on each
-# fresh sandbox start (default: true)
-# auto_install = false
-
-# Override the auto-detected package-manager install command
-# install_command = "pnpm install --frozen-lockfile"
-
-# Shell to use for `pippin shell` (default: "bash")
-# shell = "zsh"
-
-# Cedar policy file for sandbox enforcement (restricts commands, file access, network)
-# policy = "sandbox.cedar"
-
-# Use a custom Docker image for the sandbox
-image = "my-registry/my-image:latest"
-
-# Or build a local Dockerfile instead (relative to workspace root)
-# dockerfile = "./Dockerfile.pippin"
-
-# Tools to auto-configure in the sandbox (credentials, env vars, SSH agent)
-# tools = ["git", "gh", "aws"]
-
-# Commands that run on the host instead of in the sandbox
-# host_commands = ["git", "ssh"]
-
-# Forward the host SSH agent into the sandbox (Docker Desktop for Mac)
-# ssh_agent = true
-
-# Extra paths to mount into the sandbox
-[[sandbox.mounts]]
-path = "/shared/libs"
-readonly = true
+```json
+// ~/.config/pippin/config.json
+{
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": {
+        "idle_timeout": 900,
+        "init": "bun install",
+        "auto_install": false,
+        "install_command": "pnpm install --frozen-lockfile",
+        "shell": "zsh",
+        "policy": "/path/to/sandbox.cedar",
+        "image": "my-registry/my-image:latest",
+        "dockerfile": "~/.config/pippin/Dockerfile.myproject",
+        "tools": ["git", "gh"],
+        "host_commands": ["git", "ssh"],
+        "ssh_agent": true,
+        "mounts": [
+          { "path": "/shared/libs", "readonly": true }
+        ]
+      }
+    }
+  }
+}
 ```
+
+Plain absolute paths (e.g. `"/path/to/my-project"`) also work as keys — they match as substrings. For strict prefix semantics use `^/path/to/my-project(/|$)`. Multiple workspaces can be configured; the first matching key is used.
+
+If no entry matches, Pippin walks up the directory tree to find a `.git` entry and uses that as the implicit workspace root (falling back to the current directory if none is found).
 
 ### Global config (`~/.config/pippin/config.json`)
 
@@ -171,7 +164,14 @@ readonly = true
   "image": "my-registry/my-image:latest",
   "policy": "/path/to/global-policy.cedar",
   "hostCommands": ["git", "ssh"],
-  "sshAgent": true
+  "sshAgent": true,
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": {
+        "init": "bun install"
+      }
+    }
+  }
 }
 ```
 
@@ -183,27 +183,37 @@ By default, sandboxes build and use Pippin's bundled sandbox image. You can over
 
 **Pre-built image** — set `image` to any Docker image reference:
 
-```toml
-# .pippin.toml
-[sandbox]
-image = "my-registry/custom-dev:latest"
+```json
+// ~/.config/pippin/config.json — workspace-level
+{
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": { "image": "my-registry/custom-dev:latest" }
+    }
+  }
+}
 ```
 
 ```json
-// ~/.config/pippin/config.json
+// ~/.config/pippin/config.json — global
 { "image": "my-registry/custom-dev:latest" }
 ```
 
-**Local Dockerfile** — set `dockerfile` to a path (relative paths resolve from the workspace root in `.pippin.toml`, or as absolute/`~`-prefixed in the global config):
+**Local Dockerfile** — set `dockerfile` to an absolute or `~/`-prefixed path:
 
-```toml
-# .pippin.toml
-[sandbox]
-dockerfile = "./Dockerfile.pippin"
+```json
+// ~/.config/pippin/config.json — workspace-level
+{
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": { "dockerfile": "~/.config/pippin/Dockerfile.myproject" }
+    }
+  }
+}
 ```
 
 ```json
-// ~/.config/pippin/config.json
+// ~/.config/pippin/config.json — global
 { "dockerfile": "~/.config/pippin/Dockerfile" }
 ```
 
@@ -216,14 +226,19 @@ When a Dockerfile is used, Pippin builds the image locally and tags it by conten
 Instead of manually configuring dotfile mounts, environment variables, and SSH agent forwarding for each tool you use, you can declare the tools you need and Pippin handles the rest. Each built-in tool "recipe" knows what credentials to mount, what env vars to forward, and whether SSH agent access is required.
 
 ```json
-// ~/.config/pippin/config.json
+// ~/.config/pippin/config.json — global
 { "tools": ["git", "gh", "aws", "npm", "ssh"] }
 ```
 
-```toml
-# .pippin.toml
-[sandbox]
-tools = ["git", "gh"]
+```json
+// ~/.config/pippin/config.json — workspace-level
+{
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": { "tools": ["git", "gh"] }
+    }
+  }
+}
 ```
 
 Tools from both configs are merged (union). The following tools have built-in recipes:
@@ -268,14 +283,19 @@ Some commands need access to host-level credentials that are difficult to config
 When `pippin run` encounters a command whose first word matches the `hostCommands` list, it spawns the process natively on the host instead of routing it through the sandbox.
 
 ```json
-// ~/.config/pippin/config.json
+// ~/.config/pippin/config.json — global
 { "hostCommands": ["git", "ssh"] }
 ```
 
-```toml
-# .pippin.toml
-[sandbox]
-host_commands = ["git", "ssh"]
+```json
+// ~/.config/pippin/config.json — workspace-level
+{
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": { "host_commands": ["git", "ssh"] }
+    }
+  }
+}
 ```
 
 The merged set from both configs is used (union). Matching is by the first token of the command, so `"git"` matches `git pull`, `git push`, etc.
@@ -305,10 +325,15 @@ Instead of using `hostCommands` to run `git` on the host, you can forward your S
 }
 ```
 
-```toml
-# .pippin.toml
-[sandbox]
-ssh_agent = true
+```json
+// ~/.config/pippin/config.json — workspace-level
+{
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": { "ssh_agent": true }
+    }
+  }
+}
 ```
 
 When enabled, Pippin mounts Docker Desktop's SSH agent socket (`/run/host-services/ssh-auth.sock`) into the container and sets `SSH_AUTH_SOCK`. If `~/.ssh/known_hosts` exists on the host, it is also mounted read-only so SSH doesn't prompt for host key verification.
@@ -348,7 +373,7 @@ You can forward specific host environment variables into every sandbox. This is 
 
 Pippin resolves the values from your login shell environment when the sandbox starts. Only the variable names are stored in the config — the actual values are read at runtime. Changes to the `environment` list trigger an automatic sandbox restart.
 
-This is a global-config-only setting (not available in `.pippin.toml`). For most use cases, the `tools` feature handles environment forwarding automatically — use `environment` for custom variables that aren't covered by a built-in tool recipe.
+This is a global-config-only setting (not available in workspace entries). For most use cases, the `tools` feature handles environment forwarding automatically — use `environment` for custom variables that aren't covered by a built-in tool recipe.
 
 ### Cedar security policies
 
@@ -356,12 +381,17 @@ Pippin supports [Cedar](https://docs.cedarpolicy.com) policy files to restrict w
 
 **Quick start:**
 
-Create a Cedar policy file in your workspace (or globally at `~/.config/pippin/`), then point your config at it:
+Create a Cedar policy file, then point your workspace config at it using an absolute or `~/`-prefixed path:
 
-```toml
-# .pippin.toml
-[sandbox]
-policy = "sandbox.cedar"
+```json
+// ~/.config/pippin/config.json
+{
+  "workspaces": {
+    "^/path/to/my-project(/|$)": {
+      "sandbox": { "policy": "/path/to/my-project/sandbox.cedar" }
+    }
+  }
+}
 ```
 
 ```sh
