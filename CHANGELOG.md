@@ -1,3 +1,10 @@
+# [0.14.0](https://github.com/malaporte/pippin/compare/v0.13.1...v0.14.0) (2026-04-01)
+
+
+### Features
+
+* replace .pippin.toml with path-keyed workspaces in global config ([#25](https://github.com/malaporte/pippin/issues/25)) ([de3a382](https://github.com/malaporte/pippin/commit/de3a38292e881ac8a206e9e085575fc9261492ba))
+
 ## [0.13.1](https://github.com/malaporte/pippin/compare/v0.13.0...v0.13.1) (2026-03-30)
 
 
