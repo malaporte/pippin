@@ -22,7 +22,7 @@ AI coding agents — Claude Code, Codex, OpenCode — can run arbitrary shell co
 
 2. **Run arbitrary commands in a sandbox.** `pippin run <cmd>` executes any command inside the container — build scripts, package installs, test suites, or even agents themselves. Anything that can run in a shell can run through `pippin run`.
 
-3. **Route agent commands through the sandbox** *(experimental)*. For a better user experience, keep the agent on the host but configure it to prefix shell commands with `pippin run`. The agent can still read your code, but execution happens in an isolated container. This currently requires a patched agent — see [nopecode](https://github.com/malaporte/nopecode), a prototype fork of OpenCode with Pippin integration. Codex is also open-source and patchable in the same way.
+3. **Route agent commands through the sandbox** *(experimental)*. For a better user experience, keep the agent on the host but configure it to prefix shell commands with `pippin run`. The agent can still read your code, but execution happens in an isolated container. OpenCode supports this natively via its `sandbox` config — set `sandbox.command = "pippin"` and OpenCode will route all bash tool calls through the sandbox. Pippin implements the POSIX shell `-c` interface (`pippin -c "<command>"`), so it works as a drop-in shell replacement in Node.js `spawn({ shell: "pippin" })` calls. Codex is also open-source and patchable in the same way.
 
 Either way, you get [Cedar](https://docs.cedarpolicy.com) policy enforcement, filesystem isolation, and network controls — without changing how the agent works.
 
