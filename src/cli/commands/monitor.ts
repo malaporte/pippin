@@ -26,7 +26,7 @@ export async function monitorCommand(): Promise<void> {
   if (!state.controlPort) {
     process.stderr.write(
       `pippin: this sandbox was started before monitor support was added\n` +
-      `restart it with: pippin stop && pippin run <command>\n`,
+      `restart it with: pippin stop && pippin -c <command>\n`,
     )
     process.exit(1)
   }
