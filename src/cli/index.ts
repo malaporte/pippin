@@ -27,18 +27,6 @@ const firstArg = args[0]
 // --- Route to subcommands ---
 
 switch (firstArg) {
-  case 'run': {
-    const cmd = args.slice(1).join(' ')
-
-    if (!cmd) {
-      process.stderr.write('usage: pippin run <command>\n')
-      process.exit(1)
-    }
-
-    await execCommand(cmd)
-    break
-  }
-
   case 'shell': {
     await shellCommand()
     break
@@ -118,7 +106,7 @@ if (updateNotice) {
 
 function printUsage(): void {
   process.stderr.write(
-    `usage: pippin run <command>       run a command in the sandbox
+    `usage: pippin -c <command>         run a command in the sandbox
        pippin shell               open an interactive shell in the sandbox
        pippin codex [args]        run OpenAI Codex CLI in the sandbox
        pippin copilot [args]      run GitHub Copilot CLI in the sandbox

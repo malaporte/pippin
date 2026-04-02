@@ -5,9 +5,9 @@
 Run shell commands inside isolated, on-demand Docker sandboxes — transparently, from your terminal.
 
 ```sh
-pippin run npm test
-pippin run cargo build
-pippin run python main.py
+pippin -c "npm test"
+pippin -c "cargo build"
+pippin -c "python main.py"
 ```
 
 ## What it does
@@ -20,9 +20,9 @@ AI coding agents — Claude Code, Codex, OpenCode — can run arbitrary shell co
 
 1. **Use a dedicated agent command.** `pippin codex` and `pippin copilot` run the respective CLI agents fully inside the sandbox with credentials automatically wired up — everything the agent does stays inside the container, no patching required.
 
-2. **Run arbitrary commands in a sandbox.** `pippin run <cmd>` executes any command inside the container — build scripts, package installs, test suites, or even agents themselves. Anything that can run in a shell can run through `pippin run`.
+2. **Run arbitrary commands in a sandbox.** `pippin -c "<cmd>"` executes any command inside the container — build scripts, package installs, test suites, or even agents themselves. Anything that can run in a shell can run through pippin.
 
-3. **Route agent commands through the sandbox** *(experimental)*. For a better user experience, keep the agent on the host but configure it to prefix shell commands with `pippin run`. The agent can still read your code, but execution happens in an isolated container. This currently requires a patched agent — see [nopecode](https://github.com/malaporte/nopecode), a prototype fork of OpenCode with Pippin integration. Codex is also open-source and patchable in the same way.
+3. **Route agent commands through the sandbox** *(experimental)*. For a better user experience, keep the agent on the host but configure it to use pippin as its shell. The agent can still read your code, but execution happens in an isolated container. OpenCode supports this natively via its `sandbox` config — set `sandbox.command = "pippin"` and OpenCode will route all bash tool calls through the sandbox. Pippin implements the POSIX shell `-c` interface (`pippin -c "<command>"`), so it works as a drop-in shell replacement in Node.js `spawn({ shell: "pippin" })` calls. Codex is also open-source and patchable in the same way.
 
 Either way, you get [Cedar](https://docs.cedarpolicy.com) policy enforcement, filesystem isolation, and network controls — without changing how the agent works.
 
@@ -30,7 +30,7 @@ Pippin is also useful as a general-purpose sandboxing tool — run any project's
 
 ## How it works
 
-1. `pippin run <command>` finds your workspace root: the first matching entry in the `workspaces` map in `~/.config/pippin/config.json`, then the nearest `.git` root, then the current directory.
+1. `pippin -c "<command>"` finds your workspace root: the first matching entry in the `workspaces` map in `~/.config/pippin/config.json`, then the nearest `.git` root, then the current directory.
 2. If no sandbox is running, Pippin starts a container with your workspace mounted.
 3. A lightweight server inside the container receives the command over WebSocket and executes it.
 4. stdout/stderr stream back to your terminal live. A full PTY is allocated, so stdin, signals, and terminal resize events are all forwarded — interactive TUI apps work seamlessly.
@@ -76,7 +76,7 @@ Run any command inside a sandbox — no setup required:
 
 ```sh
 cd my-project
-pippin run hostname   # prints the container's hostname, not the host's
+pippin -c hostname   # prints the container's hostname, not the host's
 ```
 
 When no matching entry is found in the `workspaces` map, Pippin walks up the directory tree to find a `.git` entry and uses that directory as the workspace root — so running from any subdirectory of a Git repo does the right thing automatically, including Git worktrees. If no `.git` is found either, the current directory is used. Only the workspace root and its children are mounted into the sandbox.
@@ -100,7 +100,7 @@ To customize the sandbox (idle timeout, extra mounts, custom images, security po
 
 | Command                    | Description                                      |
 | -------------------------- | ------------------------------------------------ |
-| `pippin run <cmd>`         | Run a command inside the sandbox                 |
+| `pippin -c "<cmd>"`        | Run a command inside the sandbox                 |
 | `pippin shell`             | Open an interactive shell in the sandbox         |
 | `pippin monitor`           | Open the leash Control UI in your browser        |
 | `pippin policy`            | Show the active Cedar policy for this workspace  |
@@ -280,7 +280,7 @@ Use `sandbox.auto_install = false` to disable this behavior, `sandbox.install_co
 
 Some commands need access to host-level credentials that are difficult to configure inside a sandbox — SSH keys for `git`, authentication tokens, and so on. Instead of mounting secrets into the container, you can configure specific commands to run directly on the host.
 
-When `pippin run` encounters a command whose first word matches the `hostCommands` list, it spawns the process natively on the host instead of routing it through the sandbox.
+When pippin encounters a command via `-c` whose first word matches the `hostCommands` list, it spawns the process natively on the host instead of routing it through the sandbox.
 
 ```json
 // ~/.config/pippin/config.json — global
