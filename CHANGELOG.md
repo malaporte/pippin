@@ -1,3 +1,10 @@
+# [0.15.0](https://github.com/malaporte/pippin/compare/v0.14.0...v0.15.0) (2026-04-02)
+
+
+### Features
+
+* add POSIX shell -c interface for Node spawn compatibility ([#26](https://github.com/malaporte/pippin/issues/26)) ([969f963](https://github.com/malaporte/pippin/commit/969f963fef3799f969efebf6aa39cb039698a0e4))
+
 # [0.14.0](https://github.com/malaporte/pippin/compare/v0.13.1...v0.14.0) (2026-04-01)
 
 
