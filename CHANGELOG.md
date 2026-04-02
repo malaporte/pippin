@@ -1,3 +1,10 @@
+# [0.16.0](https://github.com/malaporte/pippin/compare/v0.15.0...v0.16.0) (2026-04-02)
+
+
+### Features
+
+* remove pippin run subcommand in favour of -c interface ([#27](https://github.com/malaporte/pippin/issues/27)) ([c3bf10e](https://github.com/malaporte/pippin/commit/c3bf10e25dec672207d7118f43e76dc6eecb2477))
+
 # [0.15.0](https://github.com/malaporte/pippin/compare/v0.14.0...v0.15.0) (2026-04-02)
 
 
