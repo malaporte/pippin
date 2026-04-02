@@ -91,6 +91,18 @@ switch (firstArg) {
     break
   }
 
+  case '-c': {
+    // POSIX shell interface: invoked as `pippin -c "<command>"` by Node's
+    // child_process.spawn({ shell: "pippin" }) — e.g. from OpenCode's sandbox integration.
+    const cmd = args[1]
+    if (!cmd) {
+      process.stderr.write('usage: pippin -c <command>\n')
+      process.exit(1)
+    }
+    await execCommand(cmd)
+    break
+  }
+
   case '--help':
   case '-h': {
     printUsage()
