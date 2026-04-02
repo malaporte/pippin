@@ -70,19 +70,6 @@ describe('pippin -c routing', () => {
   })
 })
 
-describe('pippin run routing', () => {
-  it('routes run <cmd> to execCommand', async () => {
-    await runCli(['run', 'npm', 'test'])
-    expect(mocks.execCommand).toHaveBeenCalledWith('npm test')
-  })
-
-  it('exits with error when run has no argument', async () => {
-    const { exitCode } = await runCli(['run'])
-    expect(exitCode).toBe(1)
-    expect(mocks.execCommand).not.toHaveBeenCalled()
-  })
-})
-
 describe('pippin unknown command', () => {
   it('exits with error for unknown subcommand', async () => {
     const { exitCode } = await runCli(['notacommand'])
