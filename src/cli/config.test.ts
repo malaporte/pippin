@@ -54,4 +54,53 @@ describe('readGlobalConfig', () => {
     expect(cfg.sandboxes.default.idle_timeout).toBe(300)
     expect(cfg.sandboxes.work.image).toBe('custom:latest')
   })
+
+  it('parses host port forwards and defaults sandbox_port to host_port', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({
+      sandboxes: {
+        default: {
+          root: '~/Developer',
+          host_port_forwards: [
+            { host_port: 6379 },
+            { host_port: 3306, sandbox_port: 13306 },
+          ],
+        },
+      },
+    }))
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.sandboxes.default.host_port_forwards).toEqual([
+      { host_port: 6379 },
+      { host_port: 3306, sandbox_port: 13306 },
+    ])
+  })
+
+  it('ignores invalid host port forwards', async () => {
+    const cfgDir = path.join(tmpDir, '.config', 'pippin')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({
+      sandboxes: {
+        default: {
+          root: '~/Developer',
+          host_port_forwards: [
+            { host_port: 6379 },
+            { host_port: 0 },
+            { host_port: 3306, sandbox_port: 70000 },
+            { sandbox_port: 1234 },
+          ],
+        },
+      },
+    }))
+
+    const v = Date.now()
+    const { readGlobalConfig } = await import(/* @vite-ignore */ `./config.ts?v=${v}`)
+    const cfg = readGlobalConfig()
+    expect(cfg.sandboxes.default.host_port_forwards).toEqual([
+      { host_port: 6379 },
+    ])
+  })
 })

@@ -64,4 +64,52 @@ describe('sandbox helpers', () => {
     const { __test__ } = await import('./sandbox')
     expect(__test__.isPortInUseError('port 9111 is already in use')).toBe(true)
   })
+
+  it('starts localhost proxies for configured host port forwards', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      {
+        root: '/workspace/project',
+        host_port_forwards: [
+          { host_port: 6379 },
+          { host_port: 3306, sandbox_port: 13306 },
+        ],
+      },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      [],
+      undefined,
+    )
+
+    expect(args.at(-1)).toContain('command -v socat >/dev/null 2>&1')
+    expect(args.at(-1)).toContain('socat TCP-LISTEN:6379,bind=127.0.0.1,reuseaddr,fork TCP:host.docker.internal:6379 &')
+    expect(args.at(-1)).toContain('socat TCP-LISTEN:13306,bind=127.0.0.1,reuseaddr,fork TCP:host.docker.internal:3306 &')
+  })
+
+  it('does not add localhost proxies when host port forwards are absent', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      { root: '/workspace/project', image: 'custom:latest' },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      [],
+      undefined,
+      'custom:latest',
+    )
+
+    expect(args.at(-1)).not.toContain('command -v socat >/dev/null 2>&1')
+    expect(args.at(-1)).not.toContain('host.docker.internal')
+  })
 })

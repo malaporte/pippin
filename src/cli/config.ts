@@ -2,7 +2,7 @@ import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import { DEFAULT_PORT } from '../shared/types'
-import type { GlobalConfig, DotfileEntry, SandboxConfig } from '../shared/types'
+import type { GlobalConfig, DotfileEntry, HostPortForward, SandboxConfig } from '../shared/types'
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'pippin')
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
@@ -110,6 +110,12 @@ export function validateSandboxConfig(raw: unknown): SandboxConfig | null {
     )
   }
 
+  if (Array.isArray(obj.host_port_forwards)) {
+    config.host_port_forwards = obj.host_port_forwards
+      .map(parseHostPortForward)
+      .filter((entry): entry is HostPortForward => entry !== null)
+  }
+
   if (typeof obj.image === 'string' && obj.image.length > 0) {
     config.image = obj.image
   }
@@ -153,4 +159,21 @@ function isValidDotfileEntry(entry: unknown): entry is DotfileEntry {
 
 function isValidEnvName(entry: unknown): entry is string {
   return typeof entry === 'string' && entry.length > 0
+}
+
+function parseHostPortForward(entry: unknown): HostPortForward | null {
+  if (typeof entry !== 'object' || entry === null) return null
+  const obj = entry as Record<string, unknown>
+  if (!isValidPort(obj.host_port)) return null
+
+  const forward: HostPortForward = { host_port: obj.host_port }
+  if (obj.sandbox_port === undefined) return forward
+  if (!isValidPort(obj.sandbox_port)) return null
+
+  forward.sandbox_port = obj.sandbox_port
+  return forward
+}
+
+function isValidPort(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= 65535
 }

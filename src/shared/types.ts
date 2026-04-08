@@ -94,6 +94,11 @@ export interface MountEntry {
   readonly?: boolean
 }
 
+export interface HostPortForward {
+  host_port: number
+  sandbox_port?: number
+}
+
 // --- Sandbox Config (per-named-sandbox section in ~/.config/pippin/config.json) ---
 
 export interface SandboxConfig {
@@ -108,6 +113,8 @@ export interface SandboxConfig {
   init?: string
   /** Extra volume mounts beyond the root */
   mounts?: MountEntry[]
+  /** Expose host services inside the sandbox by binding localhost proxy ports */
+  host_port_forwards?: HostPortForward[]
   /** Override the Docker image used for the sandbox container */
   image?: string
   /** Path to a Dockerfile to build and use for the sandbox container */
