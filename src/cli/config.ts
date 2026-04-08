@@ -1,32 +1,20 @@
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
-import { DEFAULT_IDLE_TIMEOUT, DEFAULT_INIT_TIMEOUT, DEFAULT_PORT } from '../shared/types'
-import type { GlobalConfig, DotfileEntry, WorkspaceConfig } from '../shared/types'
-import { KNOWN_TOOLS } from './tools'
-import { validateWorkspaceConfig } from './workspace'
+import { DEFAULT_PORT } from '../shared/types'
+import type { GlobalConfig, DotfileEntry, SandboxConfig } from '../shared/types'
 
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'pippin')
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
 
 /** Resolved global config: fields with defaults are always present, optional overrides may be undefined */
-export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'idleTimeout' | 'portRangeStart' | 'dotfiles' | 'environment' | 'shell' | 'hostCommands' | 'sshAgent' | 'tools' | 'workspaces'>> & Pick<GlobalConfig, 'initTimeout' | 'image' | 'dockerfile' | 'policy'>
+export type ResolvedGlobalConfig = Required<Pick<GlobalConfig, 'portRangeStart' | 'sandboxes'>>
 
 /** Read the global pippin config, returning defaults for missing values */
 export function readGlobalConfig(): ResolvedGlobalConfig {
   const defaults: ResolvedGlobalConfig = {
-    idleTimeout: DEFAULT_IDLE_TIMEOUT,
     portRangeStart: DEFAULT_PORT,
-    dotfiles: [],
-    environment: [],
-    hostCommands: [],
-    sshAgent: false,
-    tools: [...KNOWN_TOOLS],
-    shell: 'bash',
-    workspaces: {},
-    image: undefined,
-    dockerfile: undefined,
-    policy: undefined,
+    sandboxes: {},
   }
 
   let text: string
@@ -49,43 +37,10 @@ export function readGlobalConfig(): ResolvedGlobalConfig {
   }
 
   return {
-    idleTimeout: typeof parsed.idleTimeout === 'number' && parsed.idleTimeout > 0
-      ? parsed.idleTimeout
-      : defaults.idleTimeout,
-    initTimeout: typeof parsed.initTimeout === 'number' && parsed.initTimeout > 0
-      ? parsed.initTimeout
-      : undefined,
     portRangeStart: typeof parsed.portRangeStart === 'number' && parsed.portRangeStart > 0
       ? parsed.portRangeStart
       : defaults.portRangeStart,
-    dotfiles: Array.isArray(parsed.dotfiles)
-      ? parsed.dotfiles.filter(isValidDotfileEntry)
-      : defaults.dotfiles,
-    environment: Array.isArray(parsed.environment)
-      ? parsed.environment.filter(isValidEnvName)
-      : defaults.environment,
-    hostCommands: Array.isArray(parsed.hostCommands)
-      ? parsed.hostCommands.filter(isValidEnvName)
-      : defaults.hostCommands,
-    sshAgent: typeof parsed.sshAgent === 'boolean'
-      ? parsed.sshAgent
-      : defaults.sshAgent,
-    tools: Array.isArray(parsed.tools)
-      ? parsed.tools.filter(isValidEnvName)
-      : defaults.tools,
-    shell: typeof parsed.shell === 'string' && parsed.shell.length > 0
-      ? parsed.shell
-      : defaults.shell,
-    workspaces: parseWorkspaces(parsed.workspaces),
-    image: typeof parsed.image === 'string' && parsed.image.length > 0
-      ? parsed.image
-      : defaults.image,
-    dockerfile: typeof parsed.dockerfile === 'string' && parsed.dockerfile.length > 0
-      ? parsed.dockerfile
-      : defaults.dockerfile,
-    policy: typeof parsed.policy === 'string' && parsed.policy.length > 0
-      ? parsed.policy
-      : defaults.policy,
+    sandboxes: parseSandboxes(parsed.sandboxes),
   }
 }
 
@@ -103,15 +58,91 @@ export function expandHome(p: string): string {
   return p
 }
 
-function parseWorkspaces(raw: unknown): Record<string, WorkspaceConfig> {
+function parseSandboxes(raw: unknown): Record<string, SandboxConfig> {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
-  const result: Record<string, WorkspaceConfig> = {}
+  const result: Record<string, SandboxConfig> = {}
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof key === 'string' && key.length > 0) {
-      result[key] = validateWorkspaceConfig(value)
+    if (typeof key !== 'string' || key.length === 0) continue
+    const parsed = validateSandboxConfig(value)
+    if (parsed) {
+      result[key] = parsed
+    } else {
+      process.stderr.write(`pippin: warning: sandbox "${key}" has no valid "root" field — skipping\n`)
     }
   }
   return result
+}
+
+export function validateSandboxConfig(raw: unknown): SandboxConfig | null {
+  if (typeof raw !== 'object' || raw === null) return null
+
+  const obj = raw as Record<string, unknown>
+
+  // root is required
+  if (typeof obj.root !== 'string' || obj.root.length === 0) return null
+
+  const config: SandboxConfig = { root: obj.root }
+
+  if (Array.isArray(obj.dotfiles)) {
+    config.dotfiles = obj.dotfiles.filter(isValidDotfileEntry)
+  }
+
+  if (Array.isArray(obj.environment)) {
+    config.environment = obj.environment.filter(isValidEnvName)
+  }
+
+  if (typeof obj.idle_timeout === 'number' && obj.idle_timeout > 0) {
+    config.idle_timeout = obj.idle_timeout
+  }
+
+  if (typeof obj.init_timeout === 'number' && obj.init_timeout > 0) {
+    config.init_timeout = obj.init_timeout
+  }
+
+  if (typeof obj.init === 'string' && obj.init.length > 0) {
+    config.init = obj.init
+  }
+
+  if (Array.isArray(obj.mounts)) {
+    config.mounts = obj.mounts.filter(
+      (m): m is { path: string; readonly?: boolean } =>
+        typeof m === 'object' && m !== null && typeof (m as Record<string, unknown>).path === 'string',
+    )
+  }
+
+  if (typeof obj.image === 'string' && obj.image.length > 0) {
+    config.image = obj.image
+  }
+
+  if (typeof obj.dockerfile === 'string' && obj.dockerfile.length > 0) {
+    config.dockerfile = obj.dockerfile
+  }
+
+  if (typeof obj.policy === 'string' && obj.policy.length > 0) {
+    config.policy = obj.policy
+  }
+
+  if (typeof obj.shell === 'string' && obj.shell.length > 0) {
+    config.shell = obj.shell
+  }
+
+  if (Array.isArray(obj.host_commands)) {
+    config.host_commands = obj.host_commands.filter(
+      (c): c is string => typeof c === 'string' && c.length > 0,
+    )
+  }
+
+  if (typeof obj.ssh_agent === 'boolean') {
+    config.ssh_agent = obj.ssh_agent
+  }
+
+  if (Array.isArray(obj.tools)) {
+    config.tools = obj.tools.filter(
+      (t): t is string => typeof t === 'string' && t.length > 0,
+    )
+  }
+
+  return config
 }
 
 function isValidDotfileEntry(entry: unknown): entry is DotfileEntry {

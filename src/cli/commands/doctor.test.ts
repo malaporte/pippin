@@ -6,23 +6,21 @@ vi.mock('../leash', () => ({
 }))
 
 vi.mock('../config', () => ({
-  readGlobalConfig: () => ({ tools: [], dotfiles: [], environment: [], sshAgent: false }),
+  readGlobalConfig: () => ({
+    sandboxes: { default: { root: '/workspace/project' } },
+    portRangeStart: 9111,
+  }),
   expandHome: (value: string) => value,
 }))
 
-vi.mock('../workspace', () => ({
-  findWorkspace: () => null,
-  resolveWorkspace: () => ({ root: '/workspace/project', config: {} }),
+vi.mock('../sandbox-config', () => ({
+  DEFAULT_SANDBOX_NAME: 'default',
+  resolveSandbox: () => ({ name: 'default', config: { root: '/workspace/project' } }),
 }))
 
 vi.mock('../sandbox', () => ({
   resolveGpgSocketInfo: () => null,
-  resolveInstallPlan: () => ({ source: 'none', fingerprintParts: [] }),
   resolveServerBinary: () => '/tmp/pippin-server-linux-arm64',
-}))
-
-vi.mock('../policy', () => ({
-  resolvePolicy: () => undefined,
 }))
 
 vi.mock('../tools', () => ({
@@ -41,56 +39,9 @@ vi.mock('../tools', () => ({
   }),
 }))
 
-let doctorTestModule: typeof import('./doctor')
-
-async function loadDoctor() {
-  if (!doctorTestModule) {
-    // @ts-expect-error test-only query suffix avoids other files' module mocks
-    doctorTestModule = await import(/* @vite-ignore */ './doctor.ts?doctor-test') as typeof import('./doctor')
-  }
-  return doctorTestModule
-}
-
-describe('doctor auto-install reporting', () => {
-  it('reports detected auto-install commands', async () => {
-    const { __test__ } = await loadDoctor()
-
-    expect(__test__.describeAutoInstallPlan({
-      source: 'detected',
-      command: 'pnpm install',
-      tool: 'pnpm',
-      fingerprintParts: [],
-    })).toEqual({
-      ok: true,
-      label: 'Auto-install',
-      detail: 'detected pnpm: pnpm install',
-    })
-  })
-
-  it('reports auto-install warnings as failures', async () => {
-    const { __test__ } = await loadDoctor()
-
-    expect(__test__.describeAutoInstallPlan({
-      source: 'none',
-      warning: 'found conflicting lockfiles in /workspace/project; skipping sandbox auto-install',
-      fingerprintParts: [],
-    })).toEqual({
-      ok: false,
-      label: 'Auto-install',
-      detail: 'found conflicting lockfiles in /workspace/project; skipping sandbox auto-install',
-    })
-  })
-
-  it('reports disabled auto-install', async () => {
-    const { __test__ } = await loadDoctor()
-
-    expect(__test__.describeAutoInstallPlan({
-      source: 'disabled',
-      fingerprintParts: [],
-    })).toEqual({
-      ok: true,
-      label: 'Auto-install',
-      detail: 'disabled by workspace config',
-    })
+describe('doctor sandboxes', () => {
+  it('exports sandbox checks for tests', async () => {
+    const { __test__ } = await import('./doctor')
+    expect(__test__.checkSandboxes).toBeTypeOf('function')
   })
 })

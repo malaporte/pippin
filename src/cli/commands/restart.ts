@@ -1,15 +1,17 @@
-import { resolveWorkspace } from '../workspace'
 import { readGlobalConfig } from '../config'
+import { DEFAULT_SANDBOX_NAME, resolveSandbox } from '../sandbox-config'
 import { stopSandbox, ensureSandbox } from '../sandbox'
 
-/** Stop and restart the sandbox for the current workspace */
-export async function restartCommand(): Promise<void> {
-  const cwd = process.cwd()
+export async function restartCommand(sandboxName?: string): Promise<void> {
+  const name = sandboxName ?? DEFAULT_SANDBOX_NAME
   const globalConfig = readGlobalConfig()
-  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
+  const sandbox = resolveSandbox(name, globalConfig.sandboxes)
+  if (!sandbox) {
+    process.stderr.write(`pippin: sandbox "${name}" is not configured\n`)
+    process.exit(1)
+  }
 
-  await stopSandbox(workspace.root)
-  await ensureSandbox(workspace.root, workspace.config)
-
-  process.stderr.write(`sandbox restarted for ${workspace.root}\n`)
+  await stopSandbox(name)
+  await ensureSandbox(name, sandbox.config)
+  process.stderr.write(`sandbox restarted for ${name}\n`)
 }

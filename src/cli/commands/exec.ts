@@ -1,20 +1,15 @@
 import { EXEC_PATH, HEALTH_PATH } from '../../shared/types'
-import { resolveWorkspace, validateCwd } from '../workspace'
-import { expandHome, readGlobalConfig } from '../config'
+import { readGlobalConfig } from '../config'
+import { DEFAULT_SANDBOX_NAME, resolveSandbox, validateCwd } from '../sandbox-config'
 import { ensureSandbox } from '../sandbox'
-import type { ClientMessage, ServerMessage, MountEntry } from '../../shared/types'
+import type { ClientMessage, ServerMessage } from '../../shared/types'
 
-/**
- * Check whether `cmd` should run on the host rather than in the sandbox.
- * Matches the first token of the command against the merged hostCommands set.
- */
 function isHostCommand(cmd: string, hostCommands: Set<string>): boolean {
   const firstToken = cmd.trimStart().split(/\s+/)[0]
   if (!firstToken) return false
   return hostCommands.has(firstToken)
 }
 
-/** Execute a command directly on the host (bypassing the sandbox) */
 async function execOnHost(cmd: string): Promise<void> {
   const proc = Bun.spawn(['sh', '-c', cmd], {
     cwd: process.cwd(),
@@ -27,41 +22,40 @@ async function execOnHost(cmd: string): Promise<void> {
   process.exit(exitCode)
 }
 
-/** Execute a command inside the sandbox */
-export async function execCommand(cmd: string): Promise<void> {
-  const cwd = process.cwd()
+function requireSandbox(name: string | undefined) {
+  const sandboxName = name ?? DEFAULT_SANDBOX_NAME
   const globalConfig = readGlobalConfig()
-  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
+  const sandbox = resolveSandbox(sandboxName, globalConfig.sandboxes)
+  if (!sandbox) {
+    process.stderr.write(`pippin: sandbox "${sandboxName}" is not configured\n`)
+    if (sandboxName === DEFAULT_SANDBOX_NAME) {
+      process.stderr.write('pippin: configure a "default" sandbox in ~/.config/pippin/config.json\n')
+    }
+    process.exit(1)
+  }
+  return { sandboxName, sandbox }
+}
 
-  // Merge host commands from global and workspace configs (union)
-  const hostCommands = new Set<string>([
-    ...globalConfig.hostCommands,
-    ...(workspace.config.sandbox?.host_commands ?? []),
-  ])
+export async function execCommand(cmd: string, sandboxName?: string): Promise<void> {
+  const cwd = process.cwd()
+  const { sandbox, sandboxName: resolvedSandboxName } = requireSandbox(sandboxName)
+
+  const hostCommands = new Set<string>(sandbox.config.host_commands ?? [])
 
   if (isHostCommand(cmd, hostCommands)) {
     await execOnHost(cmd)
     return
   }
 
-  // Expand ~ in extra mounts for CWD validation
-  const extraMounts: MountEntry[] = (workspace.config.sandbox?.mounts ?? []).map((m) => ({
-    ...m,
-    path: expandHome(m.path),
-  }))
-
-  const validatedCwd = validateCwd(cwd, workspace.root, extraMounts)
+  const validatedCwd = validateCwd(cwd, sandbox.config)
   if (!validatedCwd) {
-    process.stderr.write(
-      `pippin: cwd '${cwd}' is not accessible in the sandbox\n` +
-      `pippin: workspace root is '${workspace.root}'\n`,
-    )
+    process.stderr.write(`pippin: cwd '${cwd}' is not accessible in sandbox "${resolvedSandboxName}"\n`)
+    process.stderr.write(`pippin: sandbox root is '${sandbox.config.root}'\n`)
     process.exit(1)
   }
 
-  const port = await ensureSandbox(workspace.root, workspace.config)
+  const port = await ensureSandbox(resolvedSandboxName, sandbox.config)
 
-  // Build WebSocket URL
   const params = new URLSearchParams({ cmd })
   params.set('cwd', validatedCwd)
 
@@ -72,23 +66,17 @@ export async function execCommand(cmd: string): Promise<void> {
     if (cols) params.set('cols', String(cols))
     if (rows) params.set('rows', String(rows))
 
-    // Forward TERM so the PTY session uses the correct terminal type
     if (process.env.TERM) {
       params.set('env.TERM', process.env.TERM)
     }
   }
 
   const wsUrl = `ws://127.0.0.1:${port}${EXEC_PATH}?${params.toString()}`
-
-  // Connect and run
   let exitCode = 1
-
   const ws = new WebSocket(wsUrl)
 
   ws.addEventListener('open', () => {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true)
-    }
+    if (process.stdin.isTTY) process.stdin.setRawMode(true)
 
     process.stdin.on('data', (chunk: Buffer) => {
       const msg: ClientMessage = { type: 'stdin', data: chunk.toString('base64') }
@@ -117,36 +105,26 @@ export async function execCommand(cmd: string): Promise<void> {
   ws.addEventListener('message', (event) => {
     try {
       const msg: ServerMessage = JSON.parse(String(event.data))
-
       switch (msg.type) {
-        case 'stdout': {
-          const bytes = new Uint8Array(Buffer.from(msg.data, 'base64'))
-          process.stdout.write(bytes)
+        case 'stdout':
+          process.stdout.write(new Uint8Array(Buffer.from(msg.data, 'base64')))
           break
-        }
-        case 'stderr': {
-          const bytes = new Uint8Array(Buffer.from(msg.data, 'base64'))
-          process.stderr.write(bytes)
+        case 'stderr':
+          process.stderr.write(new Uint8Array(Buffer.from(msg.data, 'base64')))
           break
-        }
-        case 'exit': {
+        case 'exit':
           exitCode = msg.code
           break
-        }
-        case 'error': {
+        case 'error':
           process.stderr.write(`pippin: ${msg.message}\n`)
           break
-        }
       }
     } catch {
-      // Malformed message; ignore
     }
   })
 
   ws.addEventListener('close', () => {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false)
-    }
+    if (process.stdin.isTTY) process.stdin.setRawMode(false)
     process.exit(exitCode)
   })
 
@@ -157,7 +135,6 @@ export async function execCommand(cmd: string): Promise<void> {
     process.exit(1)
   })
 
-  // Forward signals to the container process
   process.on('SIGINT', () => {
     const msg: ClientMessage = { type: 'signal', signal: 'SIGINT' }
     ws.send(JSON.stringify(msg))
@@ -169,6 +146,5 @@ export async function execCommand(cmd: string): Promise<void> {
     ws.close()
   })
 
-  // Keep the process alive until the WebSocket closes
   await new Promise(() => {})
 }

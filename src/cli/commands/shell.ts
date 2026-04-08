@@ -1,25 +1,15 @@
 import { EXEC_PATH, HEALTH_PATH } from '../../shared/types'
-import { resolveWorkspace, validateCwd } from '../workspace'
-import { expandHome, readGlobalConfig } from '../config'
+import { readGlobalConfig } from '../config'
+import { DEFAULT_SANDBOX_NAME, resolveSandbox, validateCwd } from '../sandbox-config'
 import { ensureSandbox } from '../sandbox'
-import type { ClientMessage, ServerMessage, MountEntry } from '../../shared/types'
+import type { ClientMessage, ServerMessage } from '../../shared/types'
 
-/** Default shell when none is configured */
 const DEFAULT_SHELL = 'bash'
 
-/**
- * Build a gradient-colored "[pippin]" string for use in PS1.
- *
- * The gradient goes from green (rgb 102,255,102) → cyan (rgb 0,255,255)
- * across each character. Each color escape is wrapped in \[...\] so bash
- * readline does not count them toward line length.
- */
 function buildGradientPrefix(): string {
   const text = '[pippin]'
-
-  // Gradient endpoints: green → cyan
   const startR = 102, startG = 255, startB = 102
-  const endR = 0,     endG = 255,   endB = 255
+  const endR = 0, endG = 255, endB = 255
 
   let result = ''
   for (let i = 0; i < text.length; i++) {
@@ -27,62 +17,45 @@ function buildGradientPrefix(): string {
     const r = Math.round(startR + (endR - startR) * t)
     const g = Math.round(startG + (endG - startG) * t)
     const b = Math.round(startB + (endB - startB) * t)
-
-    // \[ and \] are bash PS1 markers for non-printing sequences
     result += `\\[\\e[38;2;${r};${g};${b}m\\]${text[i]}`
   }
-
-  // Reset color after the prefix
   result += '\\[\\e[0m\\]'
-
   return result
 }
 
-/**
- * Build the PS1 value for the pippin shell.
- *
- * Prepends the gradient-colored [pippin] to the host's PS1 (if available),
- * falling back to a sensible default.
- */
 function buildPS1(): string {
-  const prefix = buildGradientPrefix()
-
-  // Read the host's PS1; fall back to '\w > ' if unset
-  const hostPS1 = process.env.PS1 || '\\w > '
-
-  return `${prefix} ${hostPS1}`
+  return `${buildGradientPrefix()} ${process.env.PS1 || '\\w > '}`
 }
 
-/** Open an interactive shell inside the sandbox */
-export async function shellCommand(): Promise<void> {
-  const cwd = process.cwd()
+function requireSandbox(name: string | undefined) {
+  const sandboxName = name ?? DEFAULT_SANDBOX_NAME
   const globalConfig = readGlobalConfig()
-  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
+  const sandbox = resolveSandbox(sandboxName, globalConfig.sandboxes)
+  if (!sandbox) {
+    process.stderr.write(`pippin: sandbox "${sandboxName}" is not configured\n`)
+    if (sandboxName === DEFAULT_SANDBOX_NAME) {
+      process.stderr.write('pippin: configure a "default" sandbox in ~/.config/pippin/config.json\n')
+    }
+    process.exit(1)
+  }
+  return { globalConfig, sandboxName, sandbox }
+}
 
-  // Expand ~ in extra mounts for CWD validation
-  const extraMounts: MountEntry[] = (workspace.config.sandbox?.mounts ?? []).map((m) => ({
-    ...m,
-    path: expandHome(m.path),
-  }))
+export async function shellCommand(sandboxName?: string): Promise<void> {
+  const cwd = process.cwd()
+  const { sandbox, sandboxName: resolvedSandboxName } = requireSandbox(sandboxName)
 
-  const validatedCwd = validateCwd(cwd, workspace.root, extraMounts)
+  const validatedCwd = validateCwd(cwd, sandbox.config)
   if (!validatedCwd) {
-    process.stderr.write(
-      `pippin: cwd '${cwd}' is not accessible in the sandbox\n` +
-      `pippin: workspace root is '${workspace.root}'\n`,
-    )
+    process.stderr.write(`pippin: cwd '${cwd}' is not accessible in sandbox "${resolvedSandboxName}"\n`)
+    process.stderr.write(`pippin: sandbox root is '${sandbox.config.root}'\n`)
     process.exit(1)
   }
 
-  const port = await ensureSandbox(workspace.root, workspace.config)
-
-  // Resolve the shell: workspace config > global config > default
-  const shell = workspace.config.sandbox?.shell ?? globalConfig.shell ?? DEFAULT_SHELL
-
-  // Build the pippin-branded PS1
+  const port = await ensureSandbox(resolvedSandboxName, sandbox.config)
+  const shell = sandbox.config.shell ?? DEFAULT_SHELL
   const ps1 = buildPS1()
 
-  // Build WebSocket URL — always TTY for an interactive shell
   const params = new URLSearchParams({ cmd: shell })
   params.set('cwd', validatedCwd)
   params.set('tty', '1')
@@ -91,30 +64,17 @@ export async function shellCommand(): Promise<void> {
   const rows = process.stdout.rows
   if (cols) params.set('cols', String(cols))
   if (rows) params.set('rows', String(rows))
+  if (process.env.TERM) params.set('env.TERM', process.env.TERM)
 
-  // Forward TERM so the PTY session uses the correct terminal type
-  if (process.env.TERM) {
-    params.set('env.TERM', process.env.TERM)
-  }
-
-  // Use PROMPT_COMMAND to override PS1 before every prompt. This runs after
-  // the shell's rc files, so it survives any PS1 set by bashrc.
-  // The env var PIPPIN_PS1 carries the desired prompt value; PROMPT_COMMAND
-  // copies it into PS1 on the first prompt, then disables itself.
   params.set('env.PIPPIN_PS1', ps1)
   params.set('env.PROMPT_COMMAND', 'PS1="$PIPPIN_PS1"; unset PROMPT_COMMAND')
 
   const wsUrl = `ws://127.0.0.1:${port}${EXEC_PATH}?${params.toString()}`
-
-  // Connect and run
   let exitCode = 1
-
   const ws = new WebSocket(wsUrl)
 
   ws.addEventListener('open', () => {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true)
-    }
+    if (process.stdin.isTTY) process.stdin.setRawMode(true)
 
     process.stdin.on('data', (chunk: Buffer) => {
       const msg: ClientMessage = { type: 'stdin', data: chunk.toString('base64') }
@@ -143,36 +103,26 @@ export async function shellCommand(): Promise<void> {
   ws.addEventListener('message', (event) => {
     try {
       const msg: ServerMessage = JSON.parse(String(event.data))
-
       switch (msg.type) {
-        case 'stdout': {
-          const bytes = new Uint8Array(Buffer.from(msg.data, 'base64'))
-          process.stdout.write(bytes)
+        case 'stdout':
+          process.stdout.write(new Uint8Array(Buffer.from(msg.data, 'base64')))
           break
-        }
-        case 'stderr': {
-          const bytes = new Uint8Array(Buffer.from(msg.data, 'base64'))
-          process.stderr.write(bytes)
+        case 'stderr':
+          process.stderr.write(new Uint8Array(Buffer.from(msg.data, 'base64')))
           break
-        }
-        case 'exit': {
+        case 'exit':
           exitCode = msg.code
           break
-        }
-        case 'error': {
+        case 'error':
           process.stderr.write(`pippin: ${msg.message}\n`)
           break
-        }
       }
     } catch {
-      // Malformed message; ignore
     }
   })
 
   ws.addEventListener('close', () => {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false)
-    }
+    if (process.stdin.isTTY) process.stdin.setRawMode(false)
     process.exit(exitCode)
   })
 
@@ -183,7 +133,6 @@ export async function shellCommand(): Promise<void> {
     process.exit(1)
   })
 
-  // Forward signals to the container process
   process.on('SIGINT', () => {
     const msg: ClientMessage = { type: 'signal', signal: 'SIGINT' }
     ws.send(JSON.stringify(msg))
@@ -195,6 +144,5 @@ export async function shellCommand(): Promise<void> {
     ws.close()
   })
 
-  // Keep the process alive until the WebSocket closes
   await new Promise(() => {})
 }

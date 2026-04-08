@@ -7,17 +7,17 @@ import type { SandboxState } from '../shared/types'
 
 const STATE_DIR = path.join(os.homedir(), '.local', 'state', 'pippin', 'sandboxes')
 
-/** Derive a deterministic short hash from a workspace root path */
-export function workspaceHash(workspaceRoot: string): string {
-  return crypto.createHash('sha256').update(workspaceRoot).digest('hex').slice(0, 16)
+/** Derive a deterministic short hash from a sandbox name */
+export function sandboxHash(sandboxName: string): string {
+  return crypto.createHash('sha256').update(sandboxName).digest('hex').slice(0, 16)
 }
 
-function stateFilePath(workspaceRoot: string): string {
-  return path.join(STATE_DIR, `${workspaceHash(workspaceRoot)}.json`)
+function stateFilePath(sandboxName: string): string {
+  return path.join(STATE_DIR, `${sandboxHash(sandboxName)}.json`)
 }
 
-function lockFilePath(workspaceRoot: string): string {
-  return path.join(STATE_DIR, `${workspaceHash(workspaceRoot)}.lock`)
+function lockFilePath(sandboxName: string): string {
+  return path.join(STATE_DIR, `${sandboxHash(sandboxName)}.lock`)
 }
 
 /** Ensure the state directory exists */
@@ -25,12 +25,12 @@ export function ensureStateDir(): void {
   fs.mkdirSync(STATE_DIR, { recursive: true })
 }
 
-/** Read the sandbox state for a workspace, or null if not tracked */
-export function readState(workspaceRoot: string): SandboxState | null {
+/** Read the sandbox state for a named sandbox, or null if not tracked */
+export function readState(sandboxName: string): SandboxState | null {
   try {
-    const text = fs.readFileSync(stateFilePath(workspaceRoot), 'utf-8')
+    const text = fs.readFileSync(stateFilePath(sandboxName), 'utf-8')
     const parsed = JSON.parse(text) as SandboxState
-    if (parsed.workspaceRoot && parsed.port && parsed.leashPid) {
+    if (parsed.sandboxName && parsed.workspaceRoot && parsed.port && parsed.leashPid) {
       return parsed
     }
     return null
@@ -39,23 +39,23 @@ export function readState(workspaceRoot: string): SandboxState | null {
   }
 }
 
-/** Write sandbox state for a workspace (atomic via temp file + rename) */
+/** Write sandbox state for a named sandbox (atomic via temp file + rename) */
 export function writeState(state: SandboxState): void {
   ensureStateDir()
-  const target = stateFilePath(state.workspaceRoot)
+  const target = stateFilePath(state.sandboxName)
   const tmp = `${target}.${process.pid}.tmp`
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n')
   fs.renameSync(tmp, target)
 }
 
-/** Remove sandbox state for a workspace */
-export function removeState(workspaceRoot: string): void {
+/** Remove sandbox state for a named sandbox */
+export function removeState(sandboxName: string): void {
   try {
-    fs.unlinkSync(stateFilePath(workspaceRoot))
+    fs.unlinkSync(stateFilePath(sandboxName))
   } catch {
     // Already gone
   }
-  releaseLock(workspaceRoot)
+  releaseLock(sandboxName)
 }
 
 /** List all tracked sandbox states */
@@ -68,7 +68,7 @@ export function listStates(): SandboxState[] {
       try {
         const text = fs.readFileSync(path.join(STATE_DIR, file), 'utf-8')
         const parsed = JSON.parse(text) as SandboxState
-        if (parsed.workspaceRoot && parsed.port && parsed.leashPid) {
+        if (parsed.sandboxName && parsed.workspaceRoot && parsed.port && parsed.leashPid) {
           states.push(parsed)
         }
       } catch {
@@ -109,18 +109,18 @@ export async function isServerHealthy(port: number): Promise<boolean> {
  * Validate a sandbox state: check that the process is alive and the
  * server is healthy. Removes stale state files automatically.
  */
-export async function validateState(workspaceRoot: string): Promise<SandboxState | null> {
-  const state = readState(workspaceRoot)
+export async function validateState(sandboxName: string): Promise<SandboxState | null> {
+  const state = readState(sandboxName)
   if (!state) return null
 
   if (!isProcessAlive(state.leashPid)) {
-    removeState(workspaceRoot)
+    removeState(sandboxName)
     return null
   }
 
   const healthy = await isServerHealthy(state.port)
   if (!healthy) {
-    removeState(workspaceRoot)
+    removeState(sandboxName)
     return null
   }
 
@@ -128,27 +128,27 @@ export async function validateState(workspaceRoot: string): Promise<SandboxState
 }
 
 /**
- * Acquire an exclusive lock for a workspace to prevent concurrent
+ * Acquire an exclusive lock for a sandbox to prevent concurrent
  * sandbox starts. Returns true if the lock was acquired.
  */
-export function acquireLock(workspaceRoot: string): boolean {
+export function acquireLock(sandboxName: string): boolean {
   ensureStateDir()
   try {
-    const fd = fs.openSync(lockFilePath(workspaceRoot), fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY)
+    const fd = fs.openSync(lockFilePath(sandboxName), fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY)
     fs.writeSync(fd, String(process.pid))
     fs.closeSync(fd)
     return true
   } catch {
     // Lock file already exists — check if the holder is still alive
     try {
-      const content = fs.readFileSync(lockFilePath(workspaceRoot), 'utf-8').trim()
+      const content = fs.readFileSync(lockFilePath(sandboxName), 'utf-8').trim()
       const pid = parseInt(content.split(':')[0], 10)
       if (!isNaN(pid) && isProcessAlive(pid)) {
         return false
       }
       // Stale lock — remove and retry
-      fs.unlinkSync(lockFilePath(workspaceRoot))
-      return acquireLock(workspaceRoot)
+      fs.unlinkSync(lockFilePath(sandboxName))
+      return acquireLock(sandboxName)
     } catch {
       return false
     }
@@ -157,21 +157,21 @@ export function acquireLock(workspaceRoot: string): boolean {
 
 /**
  * Write the allocated port into the lock file so that concurrent starts
- * for other workspaces can see which ports are in-flight.
+ * for other sandboxes can see which ports are in-flight.
  * Must be called while the lock is held.
  */
-export function writeLockPort(workspaceRoot: string, port: number): void {
+export function writeLockPort(sandboxName: string, port: number): void {
   try {
-    fs.writeFileSync(lockFilePath(workspaceRoot), `${process.pid}:${port}`)
+    fs.writeFileSync(lockFilePath(sandboxName), `${process.pid}:${port}`)
   } catch {
     // Best-effort — the lock file may have been removed
   }
 }
 
-/** Check if the lock for a workspace is currently held by a live process */
-export function isLockHeld(workspaceRoot: string): boolean {
+/** Check if the lock for a sandbox is currently held by a live process */
+export function isLockHeld(sandboxName: string): boolean {
   try {
-    const content = fs.readFileSync(lockFilePath(workspaceRoot), 'utf-8').trim()
+    const content = fs.readFileSync(lockFilePath(sandboxName), 'utf-8').trim()
     const pid = parseInt(content.split(':')[0], 10)
     return !isNaN(pid) && isProcessAlive(pid)
   } catch {
@@ -179,10 +179,10 @@ export function isLockHeld(workspaceRoot: string): boolean {
   }
 }
 
-/** Release the lock for a workspace */
-export function releaseLock(workspaceRoot: string): void {
+/** Release the lock for a sandbox */
+export function releaseLock(sandboxName: string): void {
   try {
-    fs.unlinkSync(lockFilePath(workspaceRoot))
+    fs.unlinkSync(lockFilePath(sandboxName))
   } catch {
     // Already gone
   }

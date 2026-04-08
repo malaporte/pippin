@@ -1,19 +1,21 @@
-import { resolveWorkspace } from '../workspace'
 import { readGlobalConfig } from '../config'
+import { DEFAULT_SANDBOX_NAME, resolveSandbox } from '../sandbox-config'
 import { stopSandbox, stopAllSandboxes } from '../sandbox'
 
-/** Stop the sandbox for the current workspace, or all sandboxes */
-export async function stopCommand(all: boolean): Promise<void> {
+export async function stopCommand(all: boolean, sandboxName?: string): Promise<void> {
   if (all) {
     await stopAllSandboxes()
     process.stderr.write('all sandboxes stopped\n')
     return
   }
 
-  const cwd = process.cwd()
+  const name = sandboxName ?? DEFAULT_SANDBOX_NAME
   const globalConfig = readGlobalConfig()
-  const workspace = resolveWorkspace(cwd, globalConfig.workspaces)
+  if (!resolveSandbox(name, globalConfig.sandboxes)) {
+    process.stderr.write(`pippin: sandbox "${name}" is not configured\n`)
+    process.exit(1)
+  }
 
-  await stopSandbox(workspace.root)
-  process.stderr.write(`sandbox stopped for ${workspace.root}\n`)
+  await stopSandbox(name)
+  process.stderr.write(`sandbox stopped for ${name}\n`)
 }

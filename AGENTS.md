@@ -38,7 +38,7 @@ Always run `bun run typecheck` and `bun run test` before considering a task done
 |---|---|
 | `src/cli/sandbox.ts` | Core sandbox lifecycle: start, stop, restart, config fingerprinting |
 | `src/cli/tools.ts` | `RECIPES` map — declarative tool configs (git, gh, aws, codex, copilot, …) |
-| `src/cli/config.ts` | Reads `~/.config/pippin/config.json` and `.pippin.toml` workspace config |
+| `src/cli/config.ts` | Reads `~/.config/pippin/config.json` and resolves named sandbox config |
 | `src/cli/policy.ts` | Cedar policy resolution |
 | `src/server/executor.ts` | PTY process spawning and I/O streaming inside the container |
 | `src/shared/types.ts` | All shared types — WebSocket protocol, config shapes, state |
@@ -51,5 +51,5 @@ Tool recipes live in `src/cli/tools.ts` in the `RECIPES` map. Each entry declare
 
 - **Config fingerprinting** — `sandbox.ts` hashes the full resolved config on every command. If it differs from the running sandbox's stored hash, the sandbox is transparently restarted.
 - **leash** — container lifecycle and Cedar policy enforcement are delegated to the `leash` binary. Pippin auto-installs it if absent.
-- **Git worktree awareness** — when the workspace is a Git worktree (`.git` is a file), Pippin mounts the main repo alongside the worktree so Git works correctly inside the container.
+- **Named sandboxes** — sandboxes are configured globally under `sandboxes` in `~/.config/pippin/config.json`. The sandbox named `default` is used when `--sandbox` is omitted.
 - **Server binary embedding** — the server binary is bundled into the CLI binary and copied into the container at startup.
