@@ -7,7 +7,6 @@ import { readGlobalConfig, expandHome } from '../config'
 import { DEFAULT_SANDBOX_NAME, resolveSandbox } from '../sandbox-config'
 import { resolveGpgSocketInfo, resolveServerBinary } from '../sandbox'
 import { RECIPES, KNOWN_TOOLS, resolveToolRequirements } from '../tools'
-import { findLeash, getLeashVersion } from '../leash'
 
 interface CheckResult { ok: boolean; label: string; detail: string }
 const pass = (label: string, detail: string): CheckResult => ({ ok: true, label, detail })
@@ -33,13 +32,6 @@ function checkDocker(): CheckResult[] {
   const info = spawnSync('docker', ['info'], { encoding: 'utf-8', timeout: 15_000 })
   results.push(info.status !== 0 ? fail('Docker daemon', 'not running (start Docker Desktop or dockerd)') : pass('Docker daemon', 'running'))
   return results
-}
-
-function checkLeash(): CheckResult {
-  const leashPath = findLeash()
-  if (!leashPath) return fail('leash', 'not found - will be auto-installed on first sandbox start, or install manually: npm install -g @strongdm/leash')
-  const version = getLeashVersion(leashPath)
-  return pass('leash', version ? `${version} (${leashPath})` : leashPath)
 }
 
 function checkServerBinary(): CheckResult {
@@ -82,10 +74,6 @@ function checkSandboxes(): CheckResult[] {
     for (const dotfile of sandbox.dotfiles ?? []) {
       const resolved = path.resolve(expandHome(dotfile.path))
       if (!fs.existsSync(resolved)) results.push(fail(`Sandbox dotfile: ${name}`, `${resolved} does not exist`))
-    }
-    if (sandbox.policy) {
-      const resolved = path.resolve(expandHome(sandbox.policy))
-      if (!fs.existsSync(resolved)) results.push(fail(`Sandbox policy: ${name}`, `${resolved} does not exist`))
     }
     if (sandbox.dockerfile) {
       const resolved = path.resolve(expandHome(sandbox.dockerfile))
@@ -160,7 +148,6 @@ export function doctorCommand(sandboxName?: string): void {
   const results: CheckResult[] = []
   results.push(checkPlatform())
   results.push(...checkDocker())
-  results.push(checkLeash())
   results.push(checkServerBinary())
   results.push(...checkGlobalConfig())
   results.push(...checkSandboxes())

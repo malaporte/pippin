@@ -5,7 +5,6 @@ import { Spinner } from '../spinner'
 import { VERSION } from '../version'
 import { listStates } from '../state'
 import { stopAllSandboxes } from '../sandbox'
-import { updateLeash } from '../leash'
 
 const GITHUB_REPO = 'malaporte/pippin'
 
@@ -144,12 +143,6 @@ export async function updateCommand(force: boolean): Promise<void> {
 
     spinner.stop()
     process.stderr.write(`pippin: updated to ${latestVersion} (was ${VERSION})\n`)
-
-    // Update leash to the latest version as well
-    const leashSpinner = new Spinner('Updating leash...')
-    leashSpinner.start()
-    await updateLeash(leashSpinner)
-    leashSpinner.stop()
 
     // Stop all running sandboxes so they restart with the new server binary
     const runningSandboxes = listStates()

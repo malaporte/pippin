@@ -2,6 +2,7 @@ import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import getPort from 'get-port'
 import type { SandboxState } from '../shared/types'
 
@@ -30,7 +31,7 @@ export function readState(sandboxName: string): SandboxState | null {
   try {
     const text = fs.readFileSync(stateFilePath(sandboxName), 'utf-8')
     const parsed = JSON.parse(text) as SandboxState
-    if (parsed.sandboxName && parsed.workspaceRoot && parsed.port && parsed.leashPid) {
+    if (parsed.sandboxName && parsed.workspaceRoot && parsed.port && parsed.containerName && parsed.containerId) {
       return parsed
     }
     return null
@@ -68,7 +69,7 @@ export function listStates(): SandboxState[] {
       try {
         const text = fs.readFileSync(path.join(STATE_DIR, file), 'utf-8')
         const parsed = JSON.parse(text) as SandboxState
-        if (parsed.sandboxName && parsed.workspaceRoot && parsed.port && parsed.leashPid) {
+        if (parsed.sandboxName && parsed.workspaceRoot && parsed.port && parsed.containerName && parsed.containerId) {
           states.push(parsed)
         }
       } catch {
@@ -81,11 +82,15 @@ export function listStates(): SandboxState[] {
   }
 }
 
-/** Check if a process with the given PID is alive */
-export function isProcessAlive(pid: number): boolean {
+/** Check if a Docker container with the given ID is running */
+export function isContainerRunning(containerId: string): boolean {
   try {
-    process.kill(pid, 0)
-    return true
+    const result = spawnSync('docker', ['inspect', '-f', '{{.State.Running}}', containerId], {
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    return result.status === 0 && result.stdout.trim() === 'true'
   } catch {
     return false
   }
@@ -113,7 +118,7 @@ export async function validateState(sandboxName: string): Promise<SandboxState |
   const state = readState(sandboxName)
   if (!state) return null
 
-  if (!isProcessAlive(state.leashPid)) {
+  if (!isContainerRunning(state.containerId)) {
     removeState(sandboxName)
     return null
   }
@@ -143,7 +148,7 @@ export function acquireLock(sandboxName: string): boolean {
     try {
       const content = fs.readFileSync(lockFilePath(sandboxName), 'utf-8').trim()
       const pid = parseInt(content.split(':')[0], 10)
-      if (!isNaN(pid) && isProcessAlive(pid)) {
+      if (!isNaN(pid) && isHostProcessAlive(pid)) {
         return false
       }
       // Stale lock — remove and retry
@@ -173,7 +178,16 @@ export function isLockHeld(sandboxName: string): boolean {
   try {
     const content = fs.readFileSync(lockFilePath(sandboxName), 'utf-8').trim()
     const pid = parseInt(content.split(':')[0], 10)
-    return !isNaN(pid) && isProcessAlive(pid)
+    return !isNaN(pid) && isHostProcessAlive(pid)
+  } catch {
+    return false
+  }
+}
+
+function isHostProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
   } catch {
     return false
   }
@@ -190,15 +204,13 @@ export function releaseLock(sandboxName: string): void {
 
 /**
  * Collect ports reserved by pippin (tracked sandboxes + in-flight lock files).
- * Returns a Set containing both the primary port and its control port (port+1)
- * for each reservation, so that neither slot can be reused.
+ * Returns a Set containing the primary port for each reservation.
  */
 function reservedPorts(): Set<number> {
   const used = new Set<number>()
 
   for (const s of listStates()) {
     used.add(s.port)
-    used.add(s.port + 1)
   }
 
   // Also check lock files for ports reserved by in-flight starts
@@ -213,7 +225,6 @@ function reservedPorts(): Set<number> {
           const port = parseInt(parts[1], 10)
           if (!isNaN(port)) {
             used.add(port)
-            used.add(port + 1)
           }
         }
       } catch {
@@ -233,28 +244,21 @@ function reservedPorts(): Set<number> {
  * by in-flight sandbox starts (recorded in lock files), and ports
  * that are actually bound on the host OS.
  *
- * Both the primary port and the control port (port+1) are verified
- * to be free before returning.
+ * The primary port is verified to be free before returning.
  */
 export async function allocatePort(portRangeStart: number): Promise<number> {
   const excluded = reservedPorts()
 
   let candidate = portRangeStart
   while (candidate < portRangeStart + 1000) {
-    if (excluded.has(candidate) || excluded.has(candidate + 1)) {
+    if (excluded.has(candidate)) {
       candidate++
       continue
     }
 
-    // Verify both the primary port and control port are actually free on the host
+    // Verify the primary port is actually free on the host
     const primary = await getPort({ port: candidate, host: '127.0.0.1' })
     if (primary !== candidate) {
-      candidate++
-      continue
-    }
-
-    const control = await getPort({ port: candidate + 1, host: '127.0.0.1' })
-    if (control !== candidate + 1) {
       candidate++
       continue
     }

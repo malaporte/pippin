@@ -3,7 +3,6 @@ import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
-import { ensureLeash } from './leash'
 import { readGlobalConfig, expandHome } from './config'
 import type { ResolvedGlobalConfig } from './config'
 import {
@@ -17,11 +16,9 @@ import {
   releaseLock,
   writeLockPort,
   isLockHeld,
-  isProcessAlive,
   isServerHealthy,
 } from './state'
 import { Spinner } from './spinner'
-import { resolvePolicy } from './policy'
 import { resolveToolRequirements, resolvePnpmStorePath } from './tools'
 import { DEFAULT_SANDBOX_DOCKERFILE } from './default-dockerfile'
 import type { SandboxConfig, SandboxState, DotfileEntry } from '../shared/types'
@@ -38,6 +35,11 @@ type GpgSocketInfo = {
   containerSocket: string
   source: 'agent-extra-socket' | 'agent-socket'
   fingerprint: string
+}
+
+type DockerContainerInfo = {
+  id: string
+  running: boolean
 }
 
 /**
@@ -107,10 +109,8 @@ async function startSandbox(
 
   const port = await allocatePort(globalConfig.portRangeStart)
   writeLockPort(sandboxName, port)
-  const controlPort = port + 1
   const idleTimeout = sandboxConfig.idle_timeout ?? 900
   const resolvedImage = await resolveImage(sandboxConfig, globalConfig)
-  const resolvedPolicy = resolvePolicy(sandboxName, sandboxConfig, globalConfig)
   const explicitSshAgent = resolveSshAgent(sandboxConfig)
   const initCommand = sandboxConfig.init?.trim()
 
@@ -199,10 +199,12 @@ async function startSandbox(
     }
   }
 
-  const args = buildLeashArgs(
+  const args = buildDockerRunArgs(
     port,
-    controlPort,
+    sandboxName,
+    sandboxRoot,
     sandboxConfig,
+    shareDir,
     effectiveDotfiles,
     effectiveEnvironment,
     shellEnv,
@@ -212,8 +214,8 @@ async function startSandbox(
     toolExtraMounts,
     initCommand,
     resolvedImage,
-    resolvedPolicy,
     toolReqs.containerEnvironment,
+    idleTimeout,
   )
 
   const spinnerMessage = initCommand
@@ -225,57 +227,11 @@ async function startSandbox(
   const spinner = new Spinner(spinnerMessage)
   spinner.start()
 
-  const leashBinary = await ensureLeash()
-  const uniqueSandboxName = getSandboxContainerName(sandboxName)
+  const { exitCode, stdout, stderr } = await spawnAsync('docker', args, { timeout: 30_000 })
+  const containerId = stdout.trim()
 
-  const leashProcess = spawn(leashBinary, args, {
-    cwd: sandboxRoot,
-    env: {
-      ...shellEnv,
-      LEASH_SHARE_DIR: shareDir,
-      PIPPIN_IDLE_TIMEOUT: String(idleTimeout),
-      ...(uniqueSandboxName ? {
-        TARGET_CONTAINER: uniqueSandboxName,
-        LEASH_CONTAINER: `${uniqueSandboxName}-leash`,
-      } : {}),
-    },
-    stdio: ['ignore', 'ignore', 'pipe'],
-  })
-
-  const stderrChunks: Buffer[] = []
-  leashProcess.stderr?.on('data', (chunk: Buffer) => {
-    stderrChunks.push(chunk)
-  })
-
-  let unexpectedExit = false
-  leashProcess.on('exit', (code) => {
-    if (code !== null && code !== 0) {
-      unexpectedExit = true
-    }
-  })
-
-  let healthy = false
-  const defaultInitTimeout = initCommand ? DEFAULT_INSTALL_INIT_TIMEOUT : DEFAULT_INIT_TIMEOUT
-  const initTimeoutSecs = sandboxConfig.init_timeout ?? defaultInitTimeout
-  const maxHealthAttempts = Math.ceil((initTimeoutSecs * 1000) / HEALTH_INTERVAL_MS)
-  for (let attempt = 0; attempt < maxHealthAttempts; attempt++) {
-    if (unexpectedExit) break
-
-    spinner.update(`starting sandbox (${attempt + 1}s)`)
-    await sleep(HEALTH_INTERVAL_MS)
-
-    if (await isServerHealthy(port)) {
-      healthy = true
-      break
-    }
-  }
-
-  spinner.stop()
-
-  if (!healthy) {
-    try { leashProcess.kill('SIGTERM') } catch {}
-
-    const stderr = Buffer.concat(stderrChunks).toString()
+  if (exitCode !== 0 || !containerId) {
+    spinner.stop()
 
     if (retryAttempt === 0 && isContainerNameConflictError(stderr, sandboxName)) {
       if (containerName) {
@@ -295,6 +251,38 @@ async function startSandbox(
     if (stderr.trim()) {
       process.stderr.write(stderr)
     }
+    process.exit(1)
+  }
+
+  let healthy = false
+  const defaultInitTimeout = initCommand ? DEFAULT_INSTALL_INIT_TIMEOUT : DEFAULT_INIT_TIMEOUT
+  const initTimeoutSecs = sandboxConfig.init_timeout ?? defaultInitTimeout
+  const maxHealthAttempts = Math.ceil((initTimeoutSecs * 1000) / HEALTH_INTERVAL_MS)
+  for (let attempt = 0; attempt < maxHealthAttempts; attempt++) {
+    const containerInfo = inspectContainer(containerId)
+    if (!containerInfo || !containerInfo.running) break
+
+    spinner.update(`starting sandbox (${attempt + 1}s)`)
+    await sleep(HEALTH_INTERVAL_MS)
+
+    if (await isServerHealthy(port)) {
+      healthy = true
+      break
+    }
+  }
+
+  spinner.stop()
+
+  if (!healthy) {
+    try {
+      spawnSync('docker', ['rm', '-f', containerId], {
+        encoding: 'utf-8',
+        timeout: 10_000,
+        stdio: ['ignore', 'ignore', 'ignore'],
+      })
+    } catch {}
+
+    process.stderr.write('pippin: sandbox failed to start\n')
 
     const logContainerName = containerName ?? 'pippin'
     try {
@@ -326,25 +314,15 @@ async function startSandbox(
     process.exit(1)
   }
 
-  const startupStderr = Buffer.concat(stderrChunks).toString()
-  if (startupStderr.trim()) {
-    process.stderr.write(startupStderr)
-  }
-
-  leashProcess.stderr?.removeAllListeners()
-  leashProcess.stderr?.destroy()
-  leashProcess.unref()
-
   const configHash = await computeConfigHash(sandboxConfig, globalConfig)
   const state: SandboxState = {
     sandboxName,
     workspaceRoot: sandboxRoot,
     port,
-    controlPort,
-    leashPid: leashProcess.pid!,
+    containerName: containerName ?? sandboxName,
+    containerId,
     startedAt: new Date().toISOString(),
     image: resolvedImage,
-    policy: resolvedPolicy,
     configHash,
   }
   writeState(state)
@@ -384,20 +362,16 @@ export async function stopSandbox(sandboxName: string): Promise<void> {
   const spinner = new Spinner(`stopping sandbox ${sandboxName}`)
   spinner.start()
 
-  if (isProcessAlive(state.leashPid)) {
-    try { process.kill(state.leashPid, 'SIGTERM') } catch {}
-
-    const deadline = Date.now() + 10_000
-    while (Date.now() < deadline && isProcessAlive(state.leashPid)) {
-      await sleep(200)
-    }
-
-    if (isProcessAlive(state.leashPid)) {
-      try { process.kill(state.leashPid, 'SIGKILL') } catch {}
-    }
+  try {
+    spawnSync('docker', ['rm', '-f', state.containerId], {
+      encoding: 'utf-8',
+      timeout: 15_000,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+  } catch {
   }
 
-  removeSandboxContainer(sandboxName)
+  removeContainerByName(state.containerName)
   removeState(sandboxName)
   spinner.stop()
 }
@@ -501,21 +475,12 @@ async function computeConfigHash(
 ): Promise<string> {
   const sandboxRoot = path.resolve(expandHome(sandboxConfig.root))
   const image = await resolveImage(sandboxConfig, globalConfig)
-  const policy = resolvePolicy('', sandboxConfig, globalConfig)
 
   const parts: string[] = [
     `root:${sandboxRoot}`,
     `image:${image ?? ''}`,
-    `policy:${policy ?? ''}`,
     `init:${sandboxConfig.init?.trim() ?? ''}`,
   ]
-
-  if (policy) {
-    try {
-      const content = fs.readFileSync(policy)
-      parts.push(`policy-content:${crypto.createHash('sha256').update(content).digest('hex')}`)
-    } catch {}
-  }
 
   const dotfileParts: string[] = []
   for (const d of sandboxConfig.dotfiles ?? []) {
@@ -582,10 +547,12 @@ function mergeAndDedup(
   return result
 }
 
-function buildLeashArgs(
+function buildDockerRunArgs(
   port: number,
-  controlPort: number,
+  sandboxName: string,
+  sandboxRoot: string,
   sandboxConfig: SandboxConfig,
+  shareDir: string,
   dotfiles: { path: string; readonly?: boolean }[],
   environment: string[],
   shellEnv: Record<string, string>,
@@ -595,21 +562,23 @@ function buildLeashArgs(
   toolExtraMounts: Array<{ path: string; containerPath?: string; readonly?: boolean }>,
   initCommand?: string,
   image?: string,
-  policy?: string,
   containerEnvironment?: Record<string, string>,
+  idleTimeout = 900,
 ): string[] {
-  const args: string[] = [
-    '-p', `127.0.0.1:${port}:${port}`,
-    '-l', `127.0.0.1:${controlPort}`,
-    '-I',
-  ]
-
-  if (image) args.push('--image', image)
-  if (policy) args.push('--policy', policy)
-
   const containerHome = '/root'
   const hostHome = os.homedir()
   const mountedPaths = new Set<string>()
+  const containerName = getSandboxContainerName(sandboxName)
+  const args: string[] = ['run', '-d', '--rm']
+
+  if (containerName) args.push('--name', containerName)
+  args.push('-v', `${sandboxRoot}:${sandboxRoot}`)
+  mountedPaths.add(sandboxRoot)
+  args.push('-v', `${shareDir}:/pippin-share`)
+  args.push('-p', `127.0.0.1:${port}:${port}`)
+  args.push('-e', `PIPPIN_PORT=${port}`)
+  args.push('-e', `PIPPIN_IDLE_TIMEOUT=${idleTimeout}`)
+  args.push('-w', sandboxRoot)
   for (const dotfile of dotfiles) {
     const expanded = expandHome(dotfile.path)
     const overrideSrc = dotfileOverrides.get(dotfile.path)
@@ -653,8 +622,6 @@ function buildLeashArgs(
     args.push('-v', mountSpec)
   }
 
-  args.push('-e', `PIPPIN_PORT=${port}`)
-
   for (const [name, value] of Object.entries(containerEnvironment ?? {})) {
     args.push('-e', `${name}=${value}`)
   }
@@ -689,17 +656,11 @@ function buildLeashArgs(
     }
   }
 
-  const COMBINED_CA = '/tmp/combined-ca.pem'
   const SF_CACHE_DIR = '$HOME/.cache/snowflake'
   const SF_CACHE_FILE = `${SF_CACHE_DIR}/credential_cache_v1.json`
+  const BOOTSTRAP_LOG = '/pippin-share/bootstrap.log'
   const hostPortForwards = sandboxConfig.host_port_forwards ?? []
   const bootstrap = [
-    `if [ -f /leash/ca-cert.pem ]; then cat /etc/ssl/certs/ca-certificates.crt /leash/ca-cert.pem > ${COMBINED_CA}; else cp /etc/ssl/certs/ca-certificates.crt ${COMBINED_CA}; fi`,
-    `export SSL_CERT_FILE=${COMBINED_CA}`,
-    `export AWS_CA_BUNDLE=${COMBINED_CA}`,
-    `export REQUESTS_CA_BUNDLE=${COMBINED_CA}`,
-    `export NODE_EXTRA_CA_CERTS=${COMBINED_CA}`,
-    `if [ -f /leash/ca-cert.pem ] && command -v update-ca-certificates >/dev/null 2>&1; then cp /leash/ca-cert.pem /usr/local/share/ca-certificates/leash-mitm.crt && update-ca-certificates >/dev/null 2>&1; fi`,
     `if [ -n "$SNOWFLAKE_ID_TOKEN" ] && [ -n "$SNOWFLAKE_TOKEN_HASH_KEY" ]; then mkdir -p ${SF_CACHE_DIR} && chmod 700 ${SF_CACHE_DIR} && printf '{"tokens":{"%s":"%s"}}' "$SNOWFLAKE_TOKEN_HASH_KEY" "$SNOWFLAKE_ID_TOKEN" > ${SF_CACHE_FILE} && chmod 600 ${SF_CACHE_FILE}; fi`,
     `if [ -d /root/.gnupg ]; then chmod 700 /root/.gnupg; fi`,
     ...(hostPortForwards.length > 0
@@ -711,13 +672,14 @@ function buildLeashArgs(
     }),
     ...(initCommand
       ? [
-          'BOOTSTRAP_LOG=/leash/bootstrap.log',
-          `if ! ( ${initCommand} ) >"$BOOTSTRAP_LOG" 2>&1; then echo "pippin: warning: sandbox init command failed (continuing anyway)" >&2; cat "$BOOTSTRAP_LOG" >&2; fi`,
+          `if ! ( ${initCommand} ) >"${BOOTSTRAP_LOG}" 2>&1; then echo "pippin: warning: sandbox init command failed (continuing anyway)" >&2; cat "${BOOTSTRAP_LOG}" >&2; fi`,
         ]
       : []),
-    'exec /leash/pippin-server',
-  ].join(' && ')
-  args.push('--', 'sh', '-c', bootstrap)
+    'exec /pippin-share/pippin-server',
+  ].join('; ')
+
+  if (image) args.push(image)
+  args.push('sh', '-c', bootstrap)
 
   return args
 }
@@ -830,6 +792,22 @@ function removeSandboxContainer(sandboxName: string): boolean {
   return removeContainerByName(containerName)
 }
 
+function inspectContainer(containerId: string): DockerContainerInfo | null {
+  try {
+    const result = spawnSync('docker', ['inspect', '-f', '{{.Id}}\n{{.State.Running}}', containerId], {
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    if (result.status !== 0) return null
+    const [id, running] = result.stdout.trim().split('\n')
+    if (!id) return null
+    return { id, running: running === 'true' }
+  } catch {
+    return null
+  }
+}
+
 function isContainerNameConflictError(stderr: string, sandboxName: string): boolean {
   const containerName = getSandboxContainerName(sandboxName)
   if (!containerName) return false
@@ -868,7 +846,7 @@ function getShellEnv(): Record<string, string> {
 export const __test__ = {
   resolveImage,
   buildDockerImage,
-  buildLeashArgs,
+  buildDockerRunArgs,
   computeConfigHash,
   resolveGpgSocketInfo,
   startSandbox,

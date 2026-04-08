@@ -119,8 +119,6 @@ export interface SandboxConfig {
   image?: string
   /** Path to a Dockerfile to build and use for the sandbox container */
   dockerfile?: string
-  /** Absolute or ~-prefixed path to a Cedar policy file for sandbox enforcement */
-  policy?: string
   /** Shell to use for `pippin shell` (e.g. "bash", "zsh", "sh") */
   shell?: string
   /** Commands that should run directly on the host instead of in the sandbox (matched by first token) */
@@ -152,14 +150,11 @@ export interface SandboxState {
   /** The resolved absolute root path mounted into the sandbox */
   workspaceRoot: string
   port: number
-  /** Port the leash Control UI is bound to. Present for sandboxes started after monitor support was added. */
-  controlPort?: number
-  leashPid: number
+  containerName: string
+  containerId: string
   startedAt: string
   /** The Docker image used for this sandbox (if a custom image was configured) */
   image?: string
-  /** The Cedar policy file used for this sandbox (if a policy was configured) */
-  policy?: string
-  /** SHA-256 fingerprint of the resolved sandbox configuration (image, policy, mounts, env) for drift detection */
+  /** SHA-256 fingerprint of the resolved sandbox configuration (image, mounts, env) for drift detection */
   configHash?: string
 }

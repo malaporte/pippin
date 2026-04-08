@@ -24,7 +24,7 @@ You can use it three ways:
 2. `pippin -c "<cmd>"` runs any command inside the sandbox.
 3. You can point another tool at `pippin` as its shell so its command execution is sandboxed.
 
-Either way, you get Cedar policy enforcement, filesystem isolation, and network controls without changing how the agent behaves.
+Either way, you get filesystem isolation and network containment without changing how the agent behaves.
 
 ## How it works
 
@@ -38,7 +38,6 @@ Either way, you get Cedar policy enforcement, filesystem isolation, and network 
 ## Requirements
 
 - Docker
-- [leash](https://github.com/strongdm/leash) — installed automatically by `pippin` if missing
 - macOS or Linux — x64 or arm64
 
 Run `pippin doctor` after installing to verify your setup.
@@ -104,8 +103,6 @@ Pippin validates that your current working directory is accessible inside the se
 | `pippin stop --sandbox <name>` | Stop a named sandbox |
 | `pippin stop --all` | Stop all running sandboxes |
 | `pippin restart [--sandbox <name>]` | Restart a sandbox |
-| `pippin monitor [--sandbox <name>]` | Open the leash Control UI |
-| `pippin policy [--validate] [--sandbox <name>]` | Show or validate the active Cedar policy |
 | `pippin doctor [--sandbox <name>]` | Check prerequisites and validate configuration |
 | `pippin update [--force]` | Update pippin |
 
@@ -126,7 +123,6 @@ Each sandbox is configured under the top-level `sandboxes` map.
       "init_timeout": 60,
       "init": "echo ready",
       "shell": "zsh",
-      "policy": "~/.config/pippin/policies/default.cedar",
       "image": "my-registry/dev:latest",
       "dockerfile": "~/.config/pippin/Dockerfile.dev",
       "host_port_forwards": [
@@ -292,42 +288,19 @@ Forward specific environment variables into a sandbox:
 
 Values are resolved from your login shell environment when the sandbox starts.
 
-### Cedar policies
-
-You can apply Cedar policies per sandbox.
-
-```json
-{
-  "sandboxes": {
-    "default": {
-      "root": "~/Developer",
-      "policy": "~/.config/pippin/policies/default.cedar"
-    }
-  }
-}
-```
-
-Use:
-
-```sh
-pippin policy
-pippin policy --validate
-pippin --sandbox work policy
-```
-
 ### Automatic restart on config changes
 
-Pippin fingerprints the active sandbox configuration, including image, policy, mounts, environment forwarding, tools, and agent forwarding. If the config changes, the sandbox is restarted automatically before the next command runs.
+Pippin fingerprints the active sandbox configuration, including image, mounts, environment forwarding, tools, and agent forwarding. If the config changes, the sandbox is restarted automatically before the next command runs.
 
 ## Architecture
 
 ```
-Host machine                     Container (leash / Docker)
-─────────────────                ────────────────────────────
+Host machine                     Container (Docker)
+─────────────────                ──────────────────
 pippin CLI
   │
   ├─ selects named sandbox
-  ├─ starts container via leash ──▶ pippin-server (HTTP + WebSocket)
+  ├─ starts container via docker ─▶ pippin-server (HTTP + WebSocket)
   ├─ polls /health                       │
   └─ WebSocket /exec?cmd=... ◀──────────▶ spawns process, streams I/O
 ```

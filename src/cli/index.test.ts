@@ -15,8 +15,6 @@ vi.mock('./update-check', () => ({
 }))
 
 vi.mock('./commands/init', () => ({ initCommand: mocks.initCommand }))
-vi.mock('./commands/monitor', () => ({ monitorCommand: vi.fn() }))
-vi.mock('./commands/policy', () => ({ policyCommand: vi.fn() }))
 vi.mock('./commands/shell', () => ({ shellCommand: vi.fn() }))
 vi.mock('./commands/status', () => ({ statusCommand: vi.fn() }))
 vi.mock('./commands/restart', () => ({ restartCommand: vi.fn() }))
