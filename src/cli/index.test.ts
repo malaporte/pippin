@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   execCommand: vi.fn(),
+  initCommand: vi.fn(),
   checkForUpdate: vi.fn(),
 }))
 
@@ -13,7 +14,7 @@ vi.mock('./update-check', () => ({
   checkForUpdate: mocks.checkForUpdate,
 }))
 
-vi.mock('./commands/init', () => ({ initCommand: vi.fn() }))
+vi.mock('./commands/init', () => ({ initCommand: mocks.initCommand }))
 vi.mock('./commands/monitor', () => ({ monitorCommand: vi.fn() }))
 vi.mock('./commands/policy', () => ({ policyCommand: vi.fn() }))
 vi.mock('./commands/shell', () => ({ shellCommand: vi.fn() }))
@@ -26,6 +27,7 @@ vi.mock('./commands/doctor', () => ({ doctorCommand: vi.fn() }))
 async function runCli(argv: string[]) {
   vi.resetModules()
   mocks.execCommand.mockReset()
+  mocks.initCommand.mockReset()
   mocks.checkForUpdate.mockResolvedValue(null)
 
   const original = process.argv
@@ -55,12 +57,12 @@ async function runCli(argv: string[]) {
 describe('pippin -c routing', () => {
   it('routes -c <cmd> to execCommand', async () => {
     await runCli(['-c', 'git fetch origin'])
-    expect(mocks.execCommand).toHaveBeenCalledWith('git fetch origin')
+    expect(mocks.execCommand).toHaveBeenCalledWith('git fetch origin', undefined)
   })
 
   it('routes -c with compound command', async () => {
     await runCli(['-c', 'git fetch origin && git rebase origin/main'])
-    expect(mocks.execCommand).toHaveBeenCalledWith('git fetch origin && git rebase origin/main')
+    expect(mocks.execCommand).toHaveBeenCalledWith('git fetch origin && git rebase origin/main', undefined)
   })
 
   it('exits with error when -c has no argument', async () => {
@@ -75,5 +77,12 @@ describe('pippin unknown command', () => {
     const { exitCode } = await runCli(['notacommand'])
     expect(exitCode).toBe(1)
     expect(mocks.execCommand).not.toHaveBeenCalled()
+  })
+})
+
+describe('pippin init routing', () => {
+  it('routes init to initCommand', async () => {
+    await runCli(['init'])
+    expect(mocks.initCommand).toHaveBeenCalledWith()
   })
 })

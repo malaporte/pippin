@@ -14,53 +14,20 @@ vi.mock('../config', async () => {
 
 describe('status sandbox image source', () => {
   beforeEach(() => {
-    vi.resetModules()
     mocks.readGlobalConfig.mockReset()
     mocks.readGlobalConfig.mockReturnValue({
-      idleTimeout: 900,
       portRangeStart: 9111,
-      dotfiles: [],
-      environment: [],
-      hostCommands: [],
-      sshAgent: false,
-      tools: [],
-      shell: 'bash',
-      workspaces: {},
-      image: undefined,
-      dockerfile: undefined,
-      policy: undefined,
+      sandboxes: {},
     })
   })
 
   it('reports bundled default image when no override is configured', async () => {
     const { __test__ } = await import('./status')
-    expect(__test__.describeSandboxImageSource('/workspace/project', {})).toBe('bundled default sandbox image')
+    expect(__test__.describeSandboxImageSource({ root: '/workspace/project' })).toBe('bundled default sandbox image')
   })
 
-  it('reports workspace dockerfile when present', async () => {
+  it('reports sandbox dockerfile when present', async () => {
     const { __test__ } = await import('./status')
-    expect(__test__.describeSandboxImageSource('/workspace/project', {
-      sandbox: { dockerfile: './Dockerfile.pippin' },
-    })).toBe('workspace dockerfile /workspace/project/Dockerfile.pippin')
-  })
-
-  it('reports global image when no workspace override exists', async () => {
-    mocks.readGlobalConfig.mockReturnValue({
-      idleTimeout: 900,
-      portRangeStart: 9111,
-      dotfiles: [],
-      environment: [],
-      hostCommands: [],
-      sshAgent: false,
-      tools: [],
-      shell: 'bash',
-      workspaces: {},
-      image: 'custom/global:latest',
-      dockerfile: undefined,
-      policy: undefined,
-    })
-
-    const { __test__ } = await import('./status')
-    expect(__test__.describeSandboxImageSource('/workspace/project', {})).toBe('global image custom/global:latest')
+    expect(__test__.describeSandboxImageSource({ root: '/workspace/project', dockerfile: './Dockerfile.pippin' })).toBe('sandbox dockerfile /workspace/project/Dockerfile.pippin')
   })
 })
