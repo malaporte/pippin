@@ -64,4 +64,66 @@ describe('sandbox helpers', () => {
     const { __test__ } = await import('./sandbox')
     expect(__test__.isPortInUseError('port 9111 is already in use')).toBe(true)
   })
+
+  it('starts redis in bootstrap for the bundled default image', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      { root: '/workspace/project' },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      [],
+      undefined,
+      true,
+    )
+
+    expect(args.at(-1)).toContain('redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --dir /tmp --pidfile /tmp/redis-server.pid --logfile /tmp/redis-server.log')
+  })
+
+  it('does not start redis in bootstrap for a custom image', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      { root: '/workspace/project', image: 'custom:latest' },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      [],
+      undefined,
+      false,
+      'custom:latest',
+    )
+
+    expect(args.at(-1)).not.toContain('redis-server --daemonize yes')
+  })
+
+  it('does not start redis in bootstrap for a custom dockerfile', async () => {
+    const { __test__ } = await import('./sandbox')
+    const args = __test__.buildLeashArgs(
+      9111,
+      9112,
+      { root: '/workspace/project', dockerfile: './Dockerfile.pippin' },
+      [],
+      [],
+      {},
+      false,
+      false,
+      new Map(),
+      [],
+      undefined,
+      false,
+      'pippin-custom:abcd1234',
+    )
+
+    expect(args.at(-1)).not.toContain('redis-server --daemonize yes')
+  })
 })

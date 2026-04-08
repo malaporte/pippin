@@ -113,6 +113,7 @@ async function startSandbox(
   const resolvedPolicy = resolvePolicy(sandboxName, sandboxConfig, globalConfig)
   const explicitSshAgent = resolveSshAgent(sandboxConfig)
   const initCommand = sandboxConfig.init?.trim()
+  const usesBundledDefaultImage = isBundledDefaultImage(sandboxConfig)
 
   const tools = [...new Set(sandboxConfig.tools ?? [])]
   const toolReqs = resolveToolRequirements(tools)
@@ -211,6 +212,7 @@ async function startSandbox(
     dotfileOverrides,
     toolExtraMounts,
     initCommand,
+    usesBundledDefaultImage,
     resolvedImage,
     resolvedPolicy,
     toolReqs.containerEnvironment,
@@ -590,6 +592,7 @@ function buildLeashArgs(
   dotfileOverrides: Map<string, string>,
   toolExtraMounts: Array<{ path: string; containerPath?: string; readonly?: boolean }>,
   initCommand?: string,
+  startRedis = false,
   image?: string,
   policy?: string,
   containerEnvironment?: Record<string, string>,
@@ -697,6 +700,11 @@ function buildLeashArgs(
     `if [ -f /leash/ca-cert.pem ] && command -v update-ca-certificates >/dev/null 2>&1; then cp /leash/ca-cert.pem /usr/local/share/ca-certificates/leash-mitm.crt && update-ca-certificates >/dev/null 2>&1; fi`,
     `if [ -n "$SNOWFLAKE_ID_TOKEN" ] && [ -n "$SNOWFLAKE_TOKEN_HASH_KEY" ]; then mkdir -p ${SF_CACHE_DIR} && chmod 700 ${SF_CACHE_DIR} && printf '{"tokens":{"%s":"%s"}}' "$SNOWFLAKE_TOKEN_HASH_KEY" "$SNOWFLAKE_ID_TOKEN" > ${SF_CACHE_FILE} && chmod 600 ${SF_CACHE_FILE}; fi`,
     `if [ -d /root/.gnupg ]; then chmod 700 /root/.gnupg; fi`,
+    ...(startRedis
+      ? [
+          'redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --dir /tmp --pidfile /tmp/redis-server.pid --logfile /tmp/redis-server.log',
+        ]
+      : []),
     ...(initCommand
       ? [
           'BOOTSTRAP_LOG=/leash/bootstrap.log',
@@ -708,6 +716,10 @@ function buildLeashArgs(
   args.push('--', 'sh', '-c', bootstrap)
 
   return args
+}
+
+function isBundledDefaultImage(sandboxConfig: SandboxConfig): boolean {
+  return !sandboxConfig.image && !sandboxConfig.dockerfile
 }
 
 function prepareShareDir(sandboxName: string): string {
@@ -858,6 +870,7 @@ export const __test__ = {
   buildDockerImage,
   buildLeashArgs,
   computeConfigHash,
+  isBundledDefaultImage,
   resolveGpgSocketInfo,
   startSandbox,
   getSandboxContainerName,

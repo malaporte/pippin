@@ -182,6 +182,8 @@ Priority is:
 
 When a Dockerfile is used, Pippin builds it locally and tags it by content hash.
 
+The bundled default sandbox image includes a local Redis server and starts it automatically on fresh sandbox startup.
+
 ### Tools
 
 Instead of manually wiring dotfiles, environment variables, and SSH/GPG forwarding, declare the tools you use and Pippin handles the rest.
