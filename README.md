@@ -1,6 +1,6 @@
 <img src="docs/pippin.avif" alt="Pippin" width="100%" />
 
-# Pippin - your agents are up to no good
+# Pippin - your agents are up to no good!
 
 Run shell commands inside isolated, on-demand Docker sandboxes — transparently, from your terminal.
 
