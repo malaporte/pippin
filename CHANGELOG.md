@@ -1,3 +1,10 @@
+# [0.18.0](https://github.com/malaporte/pippin/compare/v0.17.0...v0.18.0) (2026-04-08)
+
+
+### Features
+
+* **sandbox:** forward host service ports into sandbox localhost ([#29](https://github.com/malaporte/pippin/issues/29)) ([c2b1c6e](https://github.com/malaporte/pippin/commit/c2b1c6e4d74ebde320ce528d0feafa9694140abb))
+
 # [0.17.0](https://github.com/malaporte/pippin/compare/v0.16.0...v0.17.0) (2026-04-08)
 
 
