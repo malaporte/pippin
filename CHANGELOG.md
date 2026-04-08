@@ -1,3 +1,10 @@
+# [0.17.0](https://github.com/malaporte/pippin/compare/v0.16.0...v0.17.0) (2026-04-08)
+
+
+### Features
+
+* trigger new release ([cc6ae46](https://github.com/malaporte/pippin/commit/cc6ae469f6f11f0c82a81d4e88f0edf8b03c53d9))
+
 # [0.16.0](https://github.com/malaporte/pippin/compare/v0.15.0...v0.16.0) (2026-04-02)
 
 
