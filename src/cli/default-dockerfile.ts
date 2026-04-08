@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       jq \
       pipx \
       openssh-client \
-      redis-server \
+      socat \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-seed GitHub SSH host key so git-over-SSH works without prompts

@@ -129,6 +129,10 @@ Each sandbox is configured under the top-level `sandboxes` map.
       "policy": "~/.config/pippin/policies/default.cedar",
       "image": "my-registry/dev:latest",
       "dockerfile": "~/.config/pippin/Dockerfile.dev",
+      "host_port_forwards": [
+        { "host_port": 6379 },
+        { "host_port": 3306 }
+      ],
       "tools": ["git", "gh"],
       "host_commands": ["git", "ssh"],
       "ssh_agent": true,
@@ -149,6 +153,7 @@ Notes:
 - `root` is required for every sandbox.
 - `root` and `mounts` define which host paths are reachable inside the container.
 - `init` is optional and runs when a fresh sandbox starts.
+- `host_port_forwards` binds `127.0.0.1:<sandbox_port>` inside the sandbox and forwards to `host.docker.internal:<host_port>`.
 - There is no workspace auto-detection and no package-manager auto-install behavior.
 
 ### Global config
@@ -182,7 +187,27 @@ Priority is:
 
 When a Dockerfile is used, Pippin builds it locally and tags it by content hash.
 
-The bundled default sandbox image includes a local Redis server and starts it automatically on fresh sandbox startup.
+The bundled default sandbox image includes `socat`, which Pippin uses for `host_port_forwards`. Custom images that use `host_port_forwards` must provide `socat` themselves.
+
+### Host port forwards
+
+Forward host services into the sandbox while keeping `127.0.0.1` working inside the container:
+
+```json
+{
+  "sandboxes": {
+    "default": {
+      "root": "~/Developer",
+      "host_port_forwards": [
+        { "host_port": 6379 },
+        { "host_port": 3306 }
+      ]
+    }
+  }
+}
+```
+
+Each entry forwards `host.docker.internal:<host_port>` to `127.0.0.1:<sandbox_port>` inside the sandbox. If `sandbox_port` is omitted, it defaults to `host_port`.
 
 ### Tools
 

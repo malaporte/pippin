@@ -113,7 +113,6 @@ async function startSandbox(
   const resolvedPolicy = resolvePolicy(sandboxName, sandboxConfig, globalConfig)
   const explicitSshAgent = resolveSshAgent(sandboxConfig)
   const initCommand = sandboxConfig.init?.trim()
-  const usesBundledDefaultImage = isBundledDefaultImage(sandboxConfig)
 
   const tools = [...new Set(sandboxConfig.tools ?? [])]
   const toolReqs = resolveToolRequirements(tools)
@@ -212,7 +211,6 @@ async function startSandbox(
     dotfileOverrides,
     toolExtraMounts,
     initCommand,
-    usesBundledDefaultImage,
     resolvedImage,
     resolvedPolicy,
     toolReqs.containerEnvironment,
@@ -541,6 +539,10 @@ async function computeConfigHash(
     parts.push(`env:${e}`)
   }
 
+  for (const forward of sandboxConfig.host_port_forwards ?? []) {
+    parts.push(`host-port-forward:${forward.host_port}->${forward.sandbox_port ?? forward.host_port}`)
+  }
+
   const sshAgent = resolveSshAgent(sandboxConfig)
   parts.push(`sshAgent:${sshAgent}`)
 
@@ -592,7 +594,6 @@ function buildLeashArgs(
   dotfileOverrides: Map<string, string>,
   toolExtraMounts: Array<{ path: string; containerPath?: string; readonly?: boolean }>,
   initCommand?: string,
-  startRedis = false,
   image?: string,
   policy?: string,
   containerEnvironment?: Record<string, string>,
@@ -691,6 +692,7 @@ function buildLeashArgs(
   const COMBINED_CA = '/tmp/combined-ca.pem'
   const SF_CACHE_DIR = '$HOME/.cache/snowflake'
   const SF_CACHE_FILE = `${SF_CACHE_DIR}/credential_cache_v1.json`
+  const hostPortForwards = sandboxConfig.host_port_forwards ?? []
   const bootstrap = [
     `if [ -f /leash/ca-cert.pem ]; then cat /etc/ssl/certs/ca-certificates.crt /leash/ca-cert.pem > ${COMBINED_CA}; else cp /etc/ssl/certs/ca-certificates.crt ${COMBINED_CA}; fi`,
     `export SSL_CERT_FILE=${COMBINED_CA}`,
@@ -700,11 +702,13 @@ function buildLeashArgs(
     `if [ -f /leash/ca-cert.pem ] && command -v update-ca-certificates >/dev/null 2>&1; then cp /leash/ca-cert.pem /usr/local/share/ca-certificates/leash-mitm.crt && update-ca-certificates >/dev/null 2>&1; fi`,
     `if [ -n "$SNOWFLAKE_ID_TOKEN" ] && [ -n "$SNOWFLAKE_TOKEN_HASH_KEY" ]; then mkdir -p ${SF_CACHE_DIR} && chmod 700 ${SF_CACHE_DIR} && printf '{"tokens":{"%s":"%s"}}' "$SNOWFLAKE_TOKEN_HASH_KEY" "$SNOWFLAKE_ID_TOKEN" > ${SF_CACHE_FILE} && chmod 600 ${SF_CACHE_FILE}; fi`,
     `if [ -d /root/.gnupg ]; then chmod 700 /root/.gnupg; fi`,
-    ...(startRedis
-      ? [
-          'redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --dir /tmp --pidfile /tmp/redis-server.pid --logfile /tmp/redis-server.log',
-        ]
+    ...(hostPortForwards.length > 0
+      ? ['command -v socat >/dev/null 2>&1']
       : []),
+    ...hostPortForwards.map((forward) => {
+      const sandboxPort = forward.sandbox_port ?? forward.host_port
+      return `(socat TCP-LISTEN:${sandboxPort},bind=127.0.0.1,reuseaddr,fork TCP:host.docker.internal:${forward.host_port} &)`
+    }),
     ...(initCommand
       ? [
           'BOOTSTRAP_LOG=/leash/bootstrap.log',
@@ -716,10 +720,6 @@ function buildLeashArgs(
   args.push('--', 'sh', '-c', bootstrap)
 
   return args
-}
-
-function isBundledDefaultImage(sandboxConfig: SandboxConfig): boolean {
-  return !sandboxConfig.image && !sandboxConfig.dockerfile
 }
 
 function prepareShareDir(sandboxName: string): string {
@@ -870,7 +870,6 @@ export const __test__ = {
   buildDockerImage,
   buildLeashArgs,
   computeConfigHash,
-  isBundledDefaultImage,
   resolveGpgSocketInfo,
   startSandbox,
   getSandboxContainerName,

@@ -65,12 +65,18 @@ describe('sandbox helpers', () => {
     expect(__test__.isPortInUseError('port 9111 is already in use')).toBe(true)
   })
 
-  it('starts redis in bootstrap for the bundled default image', async () => {
+  it('starts localhost proxies for configured host port forwards', async () => {
     const { __test__ } = await import('./sandbox')
     const args = __test__.buildLeashArgs(
       9111,
       9112,
-      { root: '/workspace/project' },
+      {
+        root: '/workspace/project',
+        host_port_forwards: [
+          { host_port: 6379 },
+          { host_port: 3306, sandbox_port: 13306 },
+        ],
+      },
       [],
       [],
       {},
@@ -79,13 +85,14 @@ describe('sandbox helpers', () => {
       new Map(),
       [],
       undefined,
-      true,
     )
 
-    expect(args.at(-1)).toContain('redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --dir /tmp --pidfile /tmp/redis-server.pid --logfile /tmp/redis-server.log')
+    expect(args.at(-1)).toContain('command -v socat >/dev/null 2>&1')
+    expect(args.at(-1)).toContain('socat TCP-LISTEN:6379,bind=127.0.0.1,reuseaddr,fork TCP:host.docker.internal:6379 &')
+    expect(args.at(-1)).toContain('socat TCP-LISTEN:13306,bind=127.0.0.1,reuseaddr,fork TCP:host.docker.internal:3306 &')
   })
 
-  it('does not start redis in bootstrap for a custom image', async () => {
+  it('does not add localhost proxies when host port forwards are absent', async () => {
     const { __test__ } = await import('./sandbox')
     const args = __test__.buildLeashArgs(
       9111,
@@ -99,31 +106,10 @@ describe('sandbox helpers', () => {
       new Map(),
       [],
       undefined,
-      false,
       'custom:latest',
     )
 
-    expect(args.at(-1)).not.toContain('redis-server --daemonize yes')
-  })
-
-  it('does not start redis in bootstrap for a custom dockerfile', async () => {
-    const { __test__ } = await import('./sandbox')
-    const args = __test__.buildLeashArgs(
-      9111,
-      9112,
-      { root: '/workspace/project', dockerfile: './Dockerfile.pippin' },
-      [],
-      [],
-      {},
-      false,
-      false,
-      new Map(),
-      [],
-      undefined,
-      false,
-      'pippin-custom:abcd1234',
-    )
-
-    expect(args.at(-1)).not.toContain('redis-server --daemonize yes')
+    expect(args.at(-1)).not.toContain('command -v socat >/dev/null 2>&1')
+    expect(args.at(-1)).not.toContain('host.docker.internal')
   })
 })
