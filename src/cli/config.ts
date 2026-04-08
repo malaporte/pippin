@@ -124,10 +124,6 @@ export function validateSandboxConfig(raw: unknown): SandboxConfig | null {
     config.dockerfile = obj.dockerfile
   }
 
-  if (typeof obj.policy === 'string' && obj.policy.length > 0) {
-    config.policy = obj.policy
-  }
-
   if (typeof obj.shell === 'string' && obj.shell.length > 0) {
     config.shell = obj.shell
   }

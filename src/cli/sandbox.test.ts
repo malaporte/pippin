@@ -21,14 +21,12 @@ const stateMocks = {
   releaseLock: vi.fn(),
   writeLockPort: vi.fn(),
   isLockHeld: vi.fn(),
-  isProcessAlive: vi.fn(),
   isServerHealthy: vi.fn(),
 }
 
 vi.mock('node:child_process', () => childProcessMocks)
 vi.mock('./config', () => configMocks)
 vi.mock('./state', () => stateMocks)
-vi.mock('./policy', () => ({ resolvePolicy: vi.fn() }))
 vi.mock('./tools', () => ({
   resolveToolRequirements: vi.fn(() => ({
     dotfiles: [],
@@ -43,7 +41,6 @@ vi.mock('./tools', () => ({
   })),
   resolvePnpmStorePath: vi.fn(),
 }))
-vi.mock('./leash', () => ({ ensureLeash: vi.fn().mockResolvedValue('/usr/local/bin/leash') }))
 vi.mock('./spinner', () => ({ Spinner: class { start() {} update() {} stop() {} } }))
 
 describe('sandbox helpers', () => {
@@ -67,9 +64,10 @@ describe('sandbox helpers', () => {
 
   it('starts localhost proxies for configured host port forwards', async () => {
     const { __test__ } = await import('./sandbox')
-    const args = __test__.buildLeashArgs(
+    const args = __test__.buildDockerRunArgs(
       9111,
-      9112,
+      'default',
+      '/workspace/project',
       {
         root: '/workspace/project',
         host_port_forwards: [
@@ -77,6 +75,7 @@ describe('sandbox helpers', () => {
           { host_port: 3306, sandbox_port: 13306 },
         ],
       },
+      '/tmp/pippin-share',
       [],
       [],
       {},
@@ -85,6 +84,9 @@ describe('sandbox helpers', () => {
       new Map(),
       [],
       undefined,
+      undefined,
+      {},
+      900,
     )
 
     expect(args.at(-1)).toContain('command -v socat >/dev/null 2>&1')
@@ -94,10 +96,12 @@ describe('sandbox helpers', () => {
 
   it('does not add localhost proxies when host port forwards are absent', async () => {
     const { __test__ } = await import('./sandbox')
-    const args = __test__.buildLeashArgs(
+    const args = __test__.buildDockerRunArgs(
       9111,
-      9112,
+      'default',
+      '/workspace/project',
       { root: '/workspace/project', image: 'custom:latest' },
+      '/tmp/pippin-share',
       [],
       [],
       {},
@@ -107,6 +111,8 @@ describe('sandbox helpers', () => {
       [],
       undefined,
       'custom:latest',
+      {},
+      900,
     )
 
     expect(args.at(-1)).not.toContain('command -v socat >/dev/null 2>&1')

@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { expandHome, readGlobalConfig } from '../config'
 import { DEFAULT_SANDBOX_NAME, resolveSandbox } from '../sandbox-config'
-import { readState, listStates, isProcessAlive, isServerHealthy } from '../state'
+import { readState, listStates, isContainerRunning, isServerHealthy } from '../state'
 import type { SandboxConfig } from '../../shared/types'
 
 function describeSandboxImageSource(sandboxConfig: SandboxConfig): string {
@@ -37,15 +37,14 @@ async function showSandboxStatus(sandboxName?: string): Promise<void> {
     return
   }
 
-  const alive = isProcessAlive(state.leashPid)
+  const alive = isContainerRunning(state.containerId)
   const healthy = alive ? await isServerHealthy(state.port) : false
   process.stdout.write(`sandbox:   ${name}\n`)
   process.stdout.write(`root:      ${state.workspaceRoot}\n`)
   process.stdout.write(`status:    ${healthy ? 'running' : alive ? 'unhealthy' : 'dead'}\n`)
   process.stdout.write(`port:      ${state.port}\n`)
   process.stdout.write(`image:     ${state.image ?? configuredImage}\n`)
-  if (state.controlPort) process.stdout.write(`control:   ${state.controlPort}\n`)
-  process.stdout.write(`pid:       ${state.leashPid}\n`)
+  process.stdout.write(`container: ${state.containerName}\n`)
   process.stdout.write(`started:   ${state.startedAt}\n`)
 }
 
@@ -57,11 +56,11 @@ async function showAllStatus(): Promise<void> {
   }
 
   for (const state of states) {
-    const alive = isProcessAlive(state.leashPid)
+    const alive = isContainerRunning(state.containerId)
     const healthy = alive ? await isServerHealthy(state.port) : false
     const status = healthy ? 'running' : alive ? 'unhealthy' : 'dead'
     process.stdout.write(
-      `${state.sandboxName}  root=${state.workspaceRoot}  ${status}  port=${state.port}${state.controlPort ? `  control=${state.controlPort}` : ''}  image=${state.image ?? 'bundled-default'}  pid=${state.leashPid}  started=${state.startedAt}\n`,
+      `${state.sandboxName}  root=${state.workspaceRoot}  ${status}  port=${state.port}  image=${state.image ?? 'bundled-default'}  container=${state.containerName}  started=${state.startedAt}\n`,
     )
   }
 }

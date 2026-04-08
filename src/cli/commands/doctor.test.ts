@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('../leash', () => ({
-  findLeash: () => '/usr/local/bin/leash',
-  getLeashVersion: () => '1.0.0',
-}))
-
 vi.mock('../config', () => ({
   readGlobalConfig: () => ({
     sandboxes: { default: { root: '/workspace/project' } },

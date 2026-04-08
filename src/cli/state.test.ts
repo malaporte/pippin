@@ -26,7 +26,14 @@ describe('state helpers', () => {
 
   it('writes and reads sandbox state', async () => {
     const { writeState, readState } = await import('./state')
-    writeState({ sandboxName: 'default', workspaceRoot: '/project/foo', port: 9300, leashPid: process.pid, startedAt: new Date().toISOString() })
+    writeState({
+      sandboxName: 'default',
+      workspaceRoot: '/project/foo',
+      port: 9300,
+      containerName: 'default',
+      containerId: 'abc123',
+      startedAt: new Date().toISOString(),
+    })
     const state = readState('default')
     expect(state?.sandboxName).toBe('default')
     expect(state?.workspaceRoot).toBe('/project/foo')

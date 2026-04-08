@@ -85,23 +85,11 @@ approach. Its advantages over mounting cache files:
 - **No writable mounts**: Since credentials arrive as env vars, the
   container doesn't need write access to any AWS directory.
 
-## TLS and the MITM CA
+## TLS
 
-The pippin sandbox routes traffic through a leash MITM proxy for Cedar
-policy enforcement. This proxy terminates TLS, so the AWS CLI (and any
-SDK) must trust the proxy's CA certificate.
-
-At container start, the bootstrap script creates a combined CA bundle:
-
-```sh
-cat /etc/ssl/certs/ca-certificates.crt /leash/ca-cert.pem > /tmp/combined-ca.pem
-```
-
-and sets `AWS_CA_BUNDLE=/tmp/combined-ca.pem`. Without this, every AWS
-API call fails with a certificate verification error. The same bundle
-is also set as `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and
-`NODE_EXTRA_CA_CERTS` so that Python, Node.js, and other runtimes also
-trust the proxy.
+Pippin does not terminate TLS inside the sandbox. AWS CLI and SDK calls
+use the container's normal CA bundle, so no extra proxy CA wiring is
+required.
 
 ## Credential Expiry
 
