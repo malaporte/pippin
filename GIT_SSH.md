@@ -243,7 +243,7 @@ Agent forwarding is a deliberate security choice:
 | Property | Value |
 |---|---|
 | Mounted files | `~/.gitconfig` (readonly), `~/.gitignore_global` (readonly) |
-| Requires | `sshAgent: true`, `gpgAgent: true` |
+| Requires | `ssh_agent: true`, `gpgAgent: true` |
 
 ## Relevant Source Locations
 
