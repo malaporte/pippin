@@ -1,3 +1,10 @@
+## [0.20.3](https://github.com/malaporte/pippin/compare/v0.20.2...v0.20.3) (2026-04-10)
+
+
+### Bug Fixes
+
+* prevent spurious sandbox restarts under concurrent agent usage ([#31](https://github.com/malaporte/pippin/issues/31)) ([6ea87f4](https://github.com/malaporte/pippin/commit/6ea87f42b395a1fcf47e6004a52730e7aa762e76))
+
 ## [0.20.2](https://github.com/malaporte/pippin/compare/v0.20.1...v0.20.2) (2026-04-10)
 
 
