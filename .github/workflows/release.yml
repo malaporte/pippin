@@ -27,6 +27,11 @@ jobs:
       - name: Build darwin binaries
         run: bun run scripts/build.ts --cli --darwin
 
+      - name: Sign darwin binaries
+        run: |
+          codesign --sign - --force --preserve-metadata=entitlements,requirements,flags dist/pippin-darwin-arm64
+          codesign --sign - --force --preserve-metadata=entitlements,requirements,flags dist/pippin-darwin-x64
+
       - name: Smoke test
         run: dist/pippin-darwin-arm64 --version
 
