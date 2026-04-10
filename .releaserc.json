@@ -7,7 +7,7 @@
     "@semantic-release/changelog",
     ["@semantic-release/npm", { "npmPublish": false }],
     ["@semantic-release/exec", {
-      "prepareCmd": "VERSION=${nextRelease.version} bun run build && cd dist && for f in pippin-darwin-arm64 pippin-darwin-x64 pippin-linux-x64 pippin-linux-arm64 pippin-server-linux-x64 pippin-server-linux-arm64; do tar -czf \"$f.tar.gz\" \"$f\"; done"
+      "prepareCmd": "VERSION=${nextRelease.version} bun run scripts/build.ts --server --linux && cd dist && for f in pippin-darwin-arm64 pippin-darwin-x64 pippin-linux-x64 pippin-linux-arm64 pippin-server-linux-x64 pippin-server-linux-arm64; do tar -czf \"$f.tar.gz\" \"$f\"; done"
     }],
     ["@semantic-release/github", {
       "assets": [

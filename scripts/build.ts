@@ -8,7 +8,9 @@ const dist = path.join(root, 'dist')
 
 const args = process.argv.slice(2)
 const buildServer = args.length === 0 || args.includes('--server')
-const buildCli = args.length === 0 || args.includes('--cli')
+const buildCli = args.length === 0 || args.includes('--cli') || args.includes('--darwin') || args.includes('--linux')
+const darwinOnly = args.includes('--darwin')
+const linuxOnly = args.includes('--linux')
 
 // Resolve version: prefer VERSION env var (set by CI from git tag), else package.json
 const pkgVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf-8')).version as string
@@ -31,13 +33,12 @@ async function buildServerBinaries() {
 async function buildCliBinary() {
   const entry = path.join(src, 'cli', 'index.ts')
 
-  // Build CLI for all supported host targets
-  const targets = [
-    'bun-darwin-arm64',
-    'bun-darwin-x64',
-    'bun-linux-x64',
-    'bun-linux-arm64',
-  ] as const
+  // Build CLI for selected host targets
+  const targets = darwinOnly
+    ? (['bun-darwin-arm64', 'bun-darwin-x64'] as const)
+    : linuxOnly
+      ? (['bun-linux-x64', 'bun-linux-arm64'] as const)
+      : (['bun-darwin-arm64', 'bun-darwin-x64', 'bun-linux-x64', 'bun-linux-arm64'] as const)
 
   for (const target of targets) {
     const [, platform, arch] = target.split('-')

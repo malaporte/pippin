@@ -10,9 +10,41 @@ permissions:
   pull-requests: write
 
 jobs:
+  build-darwin:
+    name: Build darwin binaries
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build darwin binaries
+        run: bun run scripts/build.ts --cli --darwin
+
+      - name: Verify signatures
+        run: |
+          codesign -v dist/pippin-darwin-arm64
+          codesign -v dist/pippin-darwin-x64
+
+      - name: Upload darwin binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-binaries
+          path: |
+            dist/pippin-darwin-arm64
+            dist/pippin-darwin-x64
+          retention-days: 1
+
   release:
     name: Release
     runs-on: ubuntu-latest
+    needs: build-darwin
 
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +62,15 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Download darwin binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: darwin-binaries
+          path: dist/
+
+      - name: Mark darwin binaries executable
+        run: chmod +x dist/pippin-darwin-arm64 dist/pippin-darwin-x64
 
       - name: Typecheck
         run: bun run typecheck
