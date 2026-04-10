@@ -50,27 +50,47 @@ export async function ensureSandbox(
   sandboxName: string,
   sandboxConfig: SandboxConfig,
 ): Promise<number> {
+  // Fast path: if a healthy sandbox exists and the hash matches, return immediately
+  // without acquiring the lock. This is the common case for concurrent agents.
   const existing = await validateState(sandboxName)
-  if (existing) {
-    if (existing.configHash) {
-      const globalConfig = readGlobalConfig()
-      const currentHash = await computeConfigHash(sandboxConfig, globalConfig)
-
-      if (existing.configHash === currentHash) {
-        return existing.port
-      }
-
-      process.stderr.write('pippin: sandbox configuration changed, restarting...\n')
-      await stopSandbox(sandboxName)
-    } else {
+  if (existing?.configHash) {
+    const globalConfig = readGlobalConfig()
+    const currentHash = await computeConfigHash(sandboxConfig, globalConfig)
+    if (existing.configHash === currentHash) {
       return existing.port
     }
+  } else if (existing && !existing.configHash) {
+    // Legacy state with no hash — reuse blindly (same behaviour as before)
+    return existing.port
   }
 
+  // Slow path: sandbox is missing or config changed. Acquire the lock so that
+  // only one agent performs the stop+start cycle at a time. Other agents will
+  // wait via waitForSandbox and pick up the freshly written state.
   const MAX_LOCK_ATTEMPTS = 3
   for (let attempt = 0; attempt < MAX_LOCK_ATTEMPTS; attempt++) {
     if (acquireLock(sandboxName)) {
       try {
+        // Re-validate inside the lock: another agent may have already restarted
+        // the sandbox while we were waiting to acquire the lock.
+        const recheck = await validateState(sandboxName)
+        if (recheck?.configHash) {
+          const globalConfig = readGlobalConfig()
+          const currentHash = await computeConfigHash(sandboxConfig, globalConfig)
+          if (recheck.configHash === currentHash) {
+            return recheck.port
+          }
+        } else if (recheck && !recheck.configHash) {
+          return recheck.port
+        }
+
+        // Config still mismatched (or sandbox gone) — stop and restart.
+        const stale = await validateState(sandboxName)
+        if (stale) {
+          process.stderr.write('pippin: sandbox configuration changed, restarting...\n')
+          await stopSandbox(sandboxName)
+        }
+
         return await startSandbox(sandboxName, sandboxConfig)
       } finally {
         releaseLock(sandboxName)
@@ -867,12 +887,11 @@ export function resolveGpgSocketInfo(containerHome: string): GpgSocketInfo | nul
       const hostSocket = result.stdout?.trim()
       if (result.status !== 0 || !hostSocket || !fs.existsSync(hostSocket)) continue
 
-      const stat = fs.lstatSync(hostSocket)
       return {
         hostSocket,
         containerSocket: `${containerHome}/.gnupg/S.gpg-agent`,
         source: dir,
-        fingerprint: `${dir}:${hostSocket}:${stat.ino}:${Math.trunc(stat.mtimeMs)}`,
+        fingerprint: `${dir}:${hostSocket}`,
       }
     } catch {
       continue
