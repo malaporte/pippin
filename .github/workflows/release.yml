@@ -29,8 +29,8 @@ jobs:
 
       - name: Sign darwin binaries
         run: |
-          codesign --sign - --force --preserve-metadata=entitlements,requirements,flags dist/pippin-darwin-arm64
-          codesign --sign - --force --preserve-metadata=entitlements,requirements,flags dist/pippin-darwin-x64
+          codesign --sign - --force dist/pippin-darwin-arm64
+          codesign --sign - --force dist/pippin-darwin-x64
 
       - name: Smoke test
         run: dist/pippin-darwin-arm64 --version
