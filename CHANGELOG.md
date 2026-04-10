@@ -1,3 +1,12 @@
+## [0.20.2](https://github.com/malaporte/pippin/compare/v0.20.1...v0.20.2) (2026-04-10)
+
+
+### Bug Fixes
+
+* **ci:** explicitly ad-hoc sign darwin binaries after bun compile ([372becd](https://github.com/malaporte/pippin/commit/372becd5d83f876384f32584a756a17f92b0093f))
+* **ci:** pin bun to 1.3.11 on macos runner to get properly signed binaries ([b98dc13](https://github.com/malaporte/pippin/commit/b98dc135909e5d018ab0cba2224cf8d0bc7d1560))
+* **ci:** remove --preserve-metadata from codesign to fix signing of bun binaries ([83a7abf](https://github.com/malaporte/pippin/commit/83a7abffa9cc479d1d76c4e83bd1a86c04c1bc85))
+
 ## [0.20.1](https://github.com/malaporte/pippin/compare/v0.20.0...v0.20.1) (2026-04-10)
 
 
