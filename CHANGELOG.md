@@ -1,3 +1,10 @@
+# [0.19.0](https://github.com/malaporte/pippin/compare/v0.18.0...v0.19.0) (2026-04-10)
+
+
+### Features
+
+* trigger release ([71f7248](https://github.com/malaporte/pippin/commit/71f7248cbda1430a39710152b60eecb4b4fd7918))
+
 # [0.18.0](https://github.com/malaporte/pippin/compare/v0.17.0...v0.18.0) (2026-04-08)
 
 
