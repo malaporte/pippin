@@ -95,45 +95,6 @@ install -m 755 "${TMP_DIR}/pippin-${OS}-${ARCH}" "${INSTALL_DIR}/pippin"
 # Install server binary co-located with the CLI (required for container startup)
 install -m 755 "${TMP_DIR}/pippin-server-linux-${ARCH}" "${INSTALL_DIR}/pippin-server-linux-${ARCH}"
 
-# ---- Install leash ----------------------------------------------------------
-
-LEASH_REPO="strongdm/leash"
-
-# Map arch for leash (uses amd64 instead of x64)
-case "$ARCH" in
-  x64)   LEASH_ARCH="amd64" ;;
-  arm64) LEASH_ARCH="arm64" ;;
-esac
-
-say ""
-say "Fetching latest leash release..."
-LEASH_JSON="$(mktemp)"
-download "https://api.github.com/repos/${LEASH_REPO}/releases/latest" "$LEASH_JSON"
-LEASH_VERSION="$(sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' "$LEASH_JSON" | head -1)"
-rm -f "$LEASH_JSON"
-
-if [ -z "$LEASH_VERSION" ]; then
-  say "warning: could not determine latest leash version — skipping leash install"
-  say "pippin will auto-install leash on first run, or install manually:"
-  say "  npm install -g @strongdm/leash"
-else
-  LEASH_TARBALL="leash_${LEASH_VERSION}_${OS}_${LEASH_ARCH}.tar.gz"
-  LEASH_URL="https://github.com/${LEASH_REPO}/releases/download/v${LEASH_VERSION}/${LEASH_TARBALL}"
-
-  say "Downloading leash v${LEASH_VERSION}..."
-  download "$LEASH_URL" "${TMP_DIR}/${LEASH_TARBALL}"
-  tar -xzf "${TMP_DIR}/${LEASH_TARBALL}" -C "$TMP_DIR"
-
-  install -m 755 "${TMP_DIR}/leash" "${INSTALL_DIR}/leash"
-
-  # Strip macOS quarantine attribute so the unsigned binary can execute
-  if [ "$OS" = "darwin" ]; then
-    xattr -d com.apple.quarantine "${INSTALL_DIR}/leash" 2>/dev/null || true
-  fi
-
-  say "leash v${LEASH_VERSION} installed to ${INSTALL_DIR}/leash"
-fi
-
 # ---- Done -------------------------------------------------------------------
 
 say ""

@@ -18,7 +18,7 @@ const defineVersion = `--define:__VERSION__=\\\"${version}\\\"`
 async function buildServerBinaries() {
   const entry = path.join(src, 'server', 'index.ts')
 
-  // Build for both Linux architectures (runs inside leash Docker container)
+  // Build for both Linux architectures (runs inside pippin Docker container)
   const targets = ['bun-linux-x64', 'bun-linux-arm64'] as const
 
   for (const target of targets) {
