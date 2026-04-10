@@ -1,3 +1,12 @@
+## [0.20.1](https://github.com/malaporte/pippin/compare/v0.20.0...v0.20.1) (2026-04-10)
+
+
+### Bug Fixes
+
+* **ci:** build darwin binaries on macos runner to preserve ad-hoc signature ([644cfa1](https://github.com/malaporte/pippin/commit/644cfa1113f12954158cbf66936087f0221984a2))
+* **ci:** replace codesign -v with smoke test to verify darwin binary runs ([e86158d](https://github.com/malaporte/pippin/commit/e86158deb157f0f38978339c108e6e95ffaacde6))
+* **ci:** use codesign -d to verify adhoc signature instead of codesign -v ([e0d717e](https://github.com/malaporte/pippin/commit/e0d717e6a580007f1bc18b3edc32777c457d56aa))
+
 # [0.20.0](https://github.com/malaporte/pippin/compare/v0.19.0...v0.20.0) (2026-04-10)
 
 
