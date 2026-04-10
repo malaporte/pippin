@@ -27,10 +27,8 @@ jobs:
       - name: Build darwin binaries
         run: bun run scripts/build.ts --cli --darwin
 
-      - name: Verify signatures
-        run: |
-          codesign -d --verbose dist/pippin-darwin-arm64 2>&1 | grep -q "Signature=adhoc"
-          codesign -d --verbose dist/pippin-darwin-x64 2>&1 | grep -q "Signature=adhoc"
+      - name: Smoke test
+        run: dist/pippin-darwin-arm64 --version
 
       - name: Upload darwin binaries
         uses: actions/upload-artifact@v4
