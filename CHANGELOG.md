@@ -1,3 +1,10 @@
+# [0.20.0](https://github.com/malaporte/pippin/compare/v0.19.0...v0.20.0) (2026-04-10)
+
+
+### Features
+
+* remove more references to leash ([2b164ed](https://github.com/malaporte/pippin/commit/2b164ed9ed8b49601e9cd2a83dc8fdcd596b063b))
+
 # [0.19.0](https://github.com/malaporte/pippin/compare/v0.18.0...v0.19.0) (2026-04-10)
 
 
