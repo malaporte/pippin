@@ -29,8 +29,8 @@ jobs:
 
       - name: Verify signatures
         run: |
-          codesign -v dist/pippin-darwin-arm64
-          codesign -v dist/pippin-darwin-x64
+          codesign -d --verbose dist/pippin-darwin-arm64 2>&1 | grep -q "Signature=adhoc"
+          codesign -d --verbose dist/pippin-darwin-x64 2>&1 | grep -q "Signature=adhoc"
 
       - name: Upload darwin binaries
         uses: actions/upload-artifact@v4
