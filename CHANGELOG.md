@@ -1,3 +1,10 @@
+## [0.20.4](https://github.com/malaporte/pippin/compare/v0.20.3...v0.20.4) (2026-04-13)
+
+
+### Bug Fixes
+
+* make bunx available in sandbox and auto-start gpg-agent ([#32](https://github.com/malaporte/pippin/issues/32)) ([b986a06](https://github.com/malaporte/pippin/commit/b986a069b3e321bf2bc09d691310b4393ada312f))
+
 ## [0.20.3](https://github.com/malaporte/pippin/compare/v0.20.2...v0.20.3) (2026-04-10)
 
 
