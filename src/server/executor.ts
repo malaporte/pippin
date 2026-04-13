@@ -228,9 +228,8 @@ function handlePtyMessage(session: PtySession, msg: ClientMessage): void {
       break
     }
     case 'close_stdin': {
-      // For PTY sessions, ignore close_stdin — the PTY is interactive and
-      // the host's stdin closing does not mean the user wants to exit the shell.
-      // Writing \x04 (Ctrl+D) here would cause bash to exit immediately.
+      // Write EOF character (Ctrl+D) to the PTY
+      terminal.write('\x04')
       break
     }
     case 'signal': {

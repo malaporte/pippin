@@ -362,20 +362,6 @@ describe('handleMessage (pty mode)', () => {
     destroySession(id)
   })
 
-  it('close_stdin is a no-op and does not exit the PTY process', async () => {
-    const ws = makeMockWs()
-    const id = createSession(ws as never, { cmd: 'sleep 2', tty: true, cols: 80, rows: 24 })
-
-    // Sending close_stdin should NOT cause the process to exit
-    handleMessage(id, { type: 'close_stdin' })
-
-    // Wait a bit and confirm no exit message was sent
-    await new Promise((r) => setTimeout(r, 200))
-    expect(ws.sent.some((m) => m.includes('"exit"'))).toBe(false)
-
-    destroySession(id)
-  })
-
   it('signal SIGTERM kills the PTY process', async () => {
     const ws = makeMockWs()
     const id = createSession(ws as never, { cmd: 'sleep 60', tty: true, cols: 80, rows: 24 })

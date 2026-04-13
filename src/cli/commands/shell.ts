@@ -81,10 +81,10 @@ export async function shellCommand(sandboxName?: string): Promise<void> {
       ws.send(JSON.stringify(msg))
     })
 
-    process.stdin.on('end', () => {
-      const msg: ClientMessage = { type: 'close_stdin' }
-      ws.send(JSON.stringify(msg))
-    })
+    // Do not forward stdin EOF as close_stdin — pippin shell always uses a PTY,
+    // and sending Ctrl+D when the host's stdin closes (e.g. in a non-TTY context)
+    // would cause the shell to exit immediately. The user can exit by typing
+    // `exit` or pressing Ctrl+D themselves, which arrives as a stdin data chunk.
 
     if (process.stdout.isTTY) {
       process.stdout.on('resize', () => {
