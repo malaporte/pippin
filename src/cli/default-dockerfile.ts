@@ -4,6 +4,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
       jq \
       pipx \
+      python3-pip \
+      python3-venv \
+      python3-dev \
       openssh-client \
       socat \
     && rm -rf /var/lib/apt/lists/*

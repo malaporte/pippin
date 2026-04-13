@@ -23,7 +23,7 @@ describe('status sandbox image source', () => {
 
   it('reports bundled default image when no override is configured', async () => {
     const { __test__ } = await import('./status')
-    expect(__test__.describeSandboxImageSource({ root: '/workspace/project' })).toBe('bundled default sandbox image')
+    expect(__test__.describeSandboxImageSource({ root: '/workspace/project' })).toBe('default Docker image')
   })
 
   it('reports sandbox dockerfile when present', async () => {

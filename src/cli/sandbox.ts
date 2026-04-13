@@ -421,7 +421,7 @@ async function resolveImage(
   return await buildDockerImage({
     kind: 'inline',
     dockerfileText: DEFAULT_SANDBOX_DOCKERFILE,
-    label: 'bundled default sandbox image',
+    label: 'building Docker image (default sandbox)',
   })
 }
 
@@ -457,8 +457,8 @@ async function buildDockerImage(source: DockerfileBuildSource): Promise<string> 
   }
 
   const spinner = new Spinner(source.kind === 'inline'
-    ? (source.label ?? 'building bundled sandbox image')
-    : 'building custom sandbox image')
+    ? (source.label ?? 'building Docker image (default sandbox)')
+    : 'building Docker image (custom Dockerfile)')
   spinner.start()
 
   try {

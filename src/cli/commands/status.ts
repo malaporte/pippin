@@ -7,7 +7,7 @@ import type { SandboxConfig } from '../../shared/types'
 function describeSandboxImageSource(sandboxConfig: SandboxConfig): string {
   if (sandboxConfig.image) return `sandbox image ${sandboxConfig.image}`
   if (sandboxConfig.dockerfile) return `sandbox dockerfile ${path.resolve(expandHome(sandboxConfig.root), expandHome(sandboxConfig.dockerfile))}`
-  return 'bundled default sandbox image'
+  return 'default Docker image'
 }
 
 export async function statusCommand(showAll: boolean, sandboxName?: string): Promise<void> {
@@ -60,7 +60,7 @@ async function showAllStatus(): Promise<void> {
     const healthy = alive ? await isServerHealthy(state.port) : false
     const status = healthy ? 'running' : alive ? 'unhealthy' : 'dead'
     process.stdout.write(
-      `${state.sandboxName}  root=${state.workspaceRoot}  ${status}  port=${state.port}  image=${state.image ?? 'bundled-default'}  container=${state.containerName}  started=${state.startedAt}\n`,
+      `${state.sandboxName}  root=${state.workspaceRoot}  ${status}  port=${state.port}  image=${state.image ?? 'default-docker'}  container=${state.containerName}  started=${state.startedAt}\n`,
     )
   }
 }
