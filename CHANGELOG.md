@@ -1,3 +1,10 @@
+# [0.21.0](https://github.com/malaporte/pippin/compare/v0.20.4...v0.21.0) (2026-04-13)
+
+
+### Features
+
+* add python3-pip, python3-venv, python3-dev to default sandbox image ([#33](https://github.com/malaporte/pippin/issues/33)) ([ff939f4](https://github.com/malaporte/pippin/commit/ff939f4ba27e8a60bcc23ad39a95999222d2d651))
+
 ## [0.20.4](https://github.com/malaporte/pippin/compare/v0.20.3...v0.20.4) (2026-04-13)
 
 
