@@ -44,7 +44,8 @@ RUN curl -fsSL https://gh.io/copilot-install | bash
 
 # Bun
 RUN curl -fsSL https://bun.sh/install | bash \
-    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun
+    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun \
+    && ln -sf /root/.bun/bin/bunx /usr/local/bin/bunx
 
 # uv (Python package manager)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
