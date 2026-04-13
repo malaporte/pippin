@@ -877,6 +877,8 @@ export const __test__ = {
 }
 
 export function resolveGpgSocketInfo(containerHome: string): GpgSocketInfo | null {
+  let agentStartAttempted = false
+
   for (const dir of ['agent-extra-socket', 'agent-socket'] as const) {
     try {
       const result = spawnSync('gpgconf', ['--list-dirs', dir], {
@@ -885,7 +887,27 @@ export function resolveGpgSocketInfo(containerHome: string): GpgSocketInfo | nul
         stdio: ['ignore', 'pipe', 'ignore'],
       })
       const hostSocket = result.stdout?.trim()
-      if (result.status !== 0 || !hostSocket || !fs.existsSync(hostSocket)) continue
+      if (result.status !== 0 || !hostSocket) continue
+
+      if (!fs.existsSync(hostSocket)) {
+        // Socket path is known but agent isn't running yet — start it once.
+        if (!agentStartAttempted) {
+          agentStartAttempted = true
+          spawnSync('gpg-agent', ['--daemon'], {
+            encoding: 'utf-8',
+            timeout: 5_000,
+            stdio: ['ignore', 'ignore', 'ignore'],
+          })
+          process.stderr.write('pippin: started gpg-agent\n')
+        }
+        // Give the agent a moment to create its socket, then re-check.
+        // Use a tight retry loop (up to ~500 ms) to stay synchronous.
+        const deadline = Date.now() + 500
+        while (!fs.existsSync(hostSocket) && Date.now() < deadline) {
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+        }
+        if (!fs.existsSync(hostSocket)) continue
+      }
 
       return {
         hostSocket,
