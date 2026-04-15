@@ -893,7 +893,10 @@ export function resolveGpgSocketInfo(containerHome: string): GpgSocketInfo | nul
         // Socket path is known but agent isn't running yet — start it once.
         if (!agentStartAttempted) {
           agentStartAttempted = true
-          spawnSync('gpg-agent', ['--daemon'], {
+          // Use gpgconf --launch rather than gpg-agent --daemon: on macOS the
+          // agent is managed by launchd and gpgconf is the correct way to
+          // ensure it is running without spawning a conflicting second instance.
+          spawnSync('gpgconf', ['--launch', 'gpg-agent'], {
             encoding: 'utf-8',
             timeout: 5_000,
             stdio: ['ignore', 'ignore', 'ignore'],
@@ -913,7 +916,10 @@ export function resolveGpgSocketInfo(containerHome: string): GpgSocketInfo | nul
         hostSocket,
         containerSocket: `${containerHome}/.gnupg/S.gpg-agent`,
         source: dir,
-        fingerprint: `${dir}:${hostSocket}`,
+        // Include the socket inode in the fingerprint so that if the host
+        // gpg-agent restarts (new socket inode, same path), the config hash
+        // changes and the sandbox is transparently restarted with the fresh socket.
+        fingerprint: `${dir}:${hostSocket}:${fs.statSync(hostSocket).ino}`,
       }
     } catch {
       continue
