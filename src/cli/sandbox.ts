@@ -88,6 +88,13 @@ export async function ensureSandbox(
         const stale = await validateState(sandboxName)
         if (stale) {
           process.stderr.write('pippin: sandbox configuration changed, restarting...\n')
+          const globalConfig = readGlobalConfig()
+          const newParts = await computeConfigParts(sandboxConfig, globalConfig)
+          if (stale.configParts) {
+            for (const line of diffConfigParts(stale.configParts, newParts)) {
+              process.stderr.write(`pippin:   ${line}\n`)
+            }
+          }
           await stopSandbox(sandboxName)
         }
 
@@ -334,7 +341,8 @@ async function startSandbox(
     process.exit(1)
   }
 
-  const configHash = await computeConfigHash(sandboxConfig, globalConfig)
+  const configParts = await computeConfigParts(sandboxConfig, globalConfig)
+  const configHash = crypto.createHash('sha256').update(configParts.join('\n')).digest('hex').slice(0, 16)
   const state: SandboxState = {
     sandboxName,
     workspaceRoot: sandboxRoot,
@@ -344,6 +352,7 @@ async function startSandbox(
     startedAt: new Date().toISOString(),
     image: resolvedImage,
     configHash,
+    configParts,
   }
   writeState(state)
 
@@ -489,10 +498,10 @@ function resolveSshAgent(
   return sandboxConfig.ssh_agent ?? false
 }
 
-async function computeConfigHash(
+async function computeConfigParts(
   sandboxConfig: SandboxConfig,
   globalConfig: ResolvedGlobalConfig,
-): Promise<string> {
+): Promise<string[]> {
   const sandboxRoot = path.resolve(expandHome(sandboxConfig.root))
   const image = await resolveImage(sandboxConfig, globalConfig)
 
@@ -547,7 +556,42 @@ async function computeConfigHash(
     parts.push(`pnpm-store:${pnpmStore ?? ''}`)
   }
 
+  return parts
+}
+
+async function computeConfigHash(
+  sandboxConfig: SandboxConfig,
+  globalConfig: ResolvedGlobalConfig,
+): Promise<string> {
+  const parts = await computeConfigParts(sandboxConfig, globalConfig)
   return crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)
+}
+
+function diffConfigParts(oldParts: string[], newParts: string[]): string[] {
+  const oldSet = new Set(oldParts)
+  const newSet = new Set(newParts)
+  const lines: string[] = []
+  const handledOld = new Set<string>()
+
+  for (const p of newParts) {
+    if (oldSet.has(p)) continue
+    const colonIdx = p.indexOf(':')
+    const key = p.slice(0, colonIdx + 1)
+    const oldMatch = oldParts.find((o) => !newSet.has(o) && o.startsWith(key) && !handledOld.has(o))
+    if (oldMatch) {
+      lines.push(`${p.slice(0, colonIdx)}: ${oldMatch.slice(key.length)} → ${p.slice(key.length)}`)
+      handledOld.add(oldMatch)
+    } else {
+      lines.push(`${p} added`)
+    }
+  }
+
+  for (const p of oldParts) {
+    if (newSet.has(p) || handledOld.has(p)) continue
+    lines.push(`${p} removed`)
+  }
+
+  return lines
 }
 
 function mergeAndDedup(

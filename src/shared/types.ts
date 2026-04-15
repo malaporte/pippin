@@ -157,4 +157,6 @@ export interface SandboxState {
   image?: string
   /** SHA-256 fingerprint of the resolved sandbox configuration (image, mounts, env) for drift detection */
   configHash?: string
+  /** The individual parts that were hashed, stored so restarts can explain what changed */
+  configParts?: string[]
 }
