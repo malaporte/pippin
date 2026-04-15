@@ -1,3 +1,10 @@
+## [0.21.1](https://github.com/malaporte/pippin/compare/v0.21.0...v0.21.1) (2026-04-15)
+
+
+### Bug Fixes
+
+* restart sandbox when gpg-agent restarts after macOS sleep/reboot ([#34](https://github.com/malaporte/pippin/issues/34)) ([6d986db](https://github.com/malaporte/pippin/commit/6d986db1a9af4caab99eb824feb1763886728adc))
+
 # [0.21.0](https://github.com/malaporte/pippin/compare/v0.20.4...v0.21.0) (2026-04-13)
 
 
