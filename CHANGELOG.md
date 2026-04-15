@@ -1,3 +1,10 @@
+# [0.22.0](https://github.com/malaporte/pippin/compare/v0.21.1...v0.22.0) (2026-04-15)
+
+
+### Features
+
+* explain why sandbox restarts due to config change ([7c98f70](https://github.com/malaporte/pippin/commit/7c98f7010d855cb5c30430c9f61b475c3a8afffe))
+
 ## [0.21.1](https://github.com/malaporte/pippin/compare/v0.21.0...v0.21.1) (2026-04-15)
 
 
