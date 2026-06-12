@@ -720,6 +720,22 @@ function buildDockerRunArgs(
     }
   }
 
+  // RTK data dir: mount host rtk data dir into the container so that `rtk gain`
+  // on the host reflects token savings recorded inside the sandbox.
+  // Host path varies by OS (macOS: ~/Library/Application Support/rtk,
+  // Linux: ~/.local/share/rtk); container always uses /root/.local/share/rtk.
+  const rtkHostDataDir = os.platform() === 'darwin'
+    ? path.join(hostHome, 'Library', 'Application Support', 'rtk')
+    : path.join(hostHome, '.local', 'share', 'rtk')
+  const rtkContainerDataDir = `${containerHome}/.local/share/rtk`
+  if (!mountedPaths.has(rtkHostDataDir)) {
+    // Create the directory on the host if it doesn't exist so the mount succeeds
+    // even before rtk has been run for the first time.
+    fs.mkdirSync(rtkHostDataDir, { recursive: true })
+    mountedPaths.add(rtkHostDataDir)
+    args.push('-v', `${rtkHostDataDir}:${rtkContainerDataDir}`)
+  }
+
   const SF_CACHE_DIR = '$HOME/.cache/snowflake'
   const SF_CACHE_FILE = `${SF_CACHE_DIR}/credential_cache_v1.json`
   const BOOTSTRAP_LOG = '/pippin-share/bootstrap.log'
