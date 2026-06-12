@@ -1,3 +1,10 @@
+# [0.23.0](https://github.com/malaporte/pippin/compare/v0.22.0...v0.23.0) (2026-06-12)
+
+
+### Features
+
+* add rtk to sandbox image and auto-mount gain data dir ([#35](https://github.com/malaporte/pippin/issues/35)) ([9de1422](https://github.com/malaporte/pippin/commit/9de14221b634a19063366d472278c1b4a670fee8))
+
 # [0.22.0](https://github.com/malaporte/pippin/compare/v0.21.1...v0.22.0) (2026-04-15)
 
 
