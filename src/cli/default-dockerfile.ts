@@ -57,6 +57,10 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 # Sentry CLI
 RUN curl -sL https://sentry.io/get-cli/ | bash
 
+# RTK (token-optimized CLI proxy)
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
+    && ln -sf /root/.local/bin/rtk /usr/local/bin/rtk
+
 # pnpm via Corepack
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
